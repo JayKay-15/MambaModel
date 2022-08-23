@@ -10,19 +10,25 @@ library(glmnet)
 library(InformationValue)
 library(class)
 library(e1071)
-devtools::install_github("bips-hb/neuralnet", force = T)
+# devtools::install_github("bips-hb/neuralnet", force = T)
 library(neuralnet)
 library(xgboost)
+library(mctest)
 
 rm(list=ls())
 
-nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1722_oneadj.xlsx") # use TS
-nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1722_oneadj_ftm_fta.xlsx") # use eFG
+# nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/ADJ.xlsx")
+nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1722_noadj.xlsx")
+# nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1722.xlsx")
 
-nba <- nba %>%
-    filter(Date > '2018-08-01')
-nba <- nba %>%
-    filter(Date > '2019-08-01')
+nba_reg <- nba %>%
+    select(7,9:78)
+
+# nba_reg <- nba %>%
+#     select(7,79:48)
+
+# nba <- nba %>%
+#     filter(Date > '2018-08-01')
 
 
 ########### Spread ------------------------------------------------
@@ -92,7 +98,7 @@ eval_metrics(lin_mod, test, predictions, target = 'Margin')
 library(broom)
 ls_marg_diag <- augment(lin_mod)
 ls_marg_diag %>% 
-    mutate(index = 1:nrow(lin_mod)) %>%
+    mutate(index = 1:nrow(ls_marg_diag)) %>%
     select(34,1,28:30,32:33) %>%
     head()
 
@@ -199,9 +205,10 @@ eval_results(y_test, predictions_test, test)
 # Set training control
 train_cont <- trainControl(method = "repeatedcv",
                            number = 10,
-                           repeats = 5,
+                           repeats = 3,
                            search = "random",
                            verboseIter = TRUE)
+
 
 # Train the model
 elastic_reg <- train(Margin ~ .,
@@ -224,6 +231,13 @@ eval_results(y_train, predictions_train, train)
 predictions_test <- predict(elastic_reg, x_test)
 eval_results(y_test, predictions_test, test)
 
+# #plotting the model
+# 
+# plot(en, main = "Elastic Net Regression")
+# 
+# #plotting important variables
+# 
+# plot(varImp(en,scale=TRUE))
 
 
 
@@ -248,9 +262,9 @@ make_knn_pred = function(k = 1, training, predicting) {
 }
 
 
-# define values of k to evaluate
-# k = seq(21,91,5)
-k = 1:101
+# # define values of k to evaluate
+k = seq(1,201,5)
+# k = 1:101
 
 # get requested train RMSEs
 knn_trn_rmse = sapply(k, make_knn_pred, 
@@ -395,7 +409,7 @@ abline(0, 1, col = "darkorange", lwd = 2)
 (lm_tst_rmse = calc_rmse(nba_lm_tst_pred, test$Margin))
 
 # bagging
-nba_bag = randomForest(Margin ~ ., data = train, mtry = 26, 
+nba_bag = randomForest(Margin ~ ., data = train, mtry = 71, 
                        importance = TRUE, ntrees = 500)
 nba_bag
 
@@ -413,7 +427,7 @@ plot(nba_bag, col = "dodgerblue", lwd = 2, main = "Bagged Trees: Error vs Number
 grid()
 
 # random forest
-nba_forest = randomForest(Margin ~ ., data = train, mtry = 9, 
+nba_forest = randomForest(Margin ~ ., data = train, mtry = 18, 
                           importance = TRUE, ntrees = 500)
 nba_forest
 
@@ -437,7 +451,7 @@ forest_oob_rmse = calc_rmse(nba_forest$predicted, train$Margin)
 
 # boosting
 nba_boost = gbm(Margin ~ ., data = train, distribution = "gaussian", 
-          n.trees = 1500, interaction.depth = 2, shrinkage = 0.01)
+          n.trees = 2000, interaction.depth = 2, shrinkage = 0.01)
 nba_boost
 
 tibble::as_tibble(summary(nba_boost))
@@ -492,10 +506,10 @@ plot(svm.tune)
 
 
 
-modelsvm = svm(Margin ~., train, cost=10, kernel = "linear")
+modelsvm = svm(Margin ~., train, cost=5, kernel = "linear")
 predsvm = predict(modelsvm, test)
 RMSEsvm = RMSE(predsvm, test$Margin)
-
+RMSEsvm
 
 
 
@@ -519,15 +533,13 @@ margin_rmse
 # xgb_params <- list(
 #     objective = "reg:squarederror",
 #     eval_metric = "rmse",
-#     eta = 0.0168,
-#     max_depth = 7,
-#     subsample = 0.6758,
-#     colsample_bytree = 0.5995,
-#     min_child_weight = 39,
-#     max_delta_step = 5
+#     eta = 0.01153427,
+#     max_depth = 9,
+#     subsample = 0.6890043,
+#     colsample_bytree = 0.5097622,
+#     min_child_weight = 35,
+#     max_delta_step = 7
 # )
-
-
 
 
 
@@ -540,13 +552,12 @@ dtrain <- xgb.DMatrix(trainx, label = trainy)
 dtest <- xgb.DMatrix(testx, label = testy)
 
 
-
 best_param <- list()
-best_seednumber <- 1234
+# best_seednumber <- 1234
 best_rmse <- Inf
 best_rmse_index <- 0
 
-set.seed(123)
+set.seed(214)
 for (iter in 1:100) {
     param <- list(objective = "reg:squarederror",
                   eval_metric = "rmse",
@@ -559,8 +570,8 @@ for (iter in 1:100) {
     )
     cv.nround <-  1000
     cv.nfold <-  5 # 5-fold cross-validation
-    seed.number  <-  sample.int(10000, 1) # set seed for the cv
-    set.seed(seed.number)
+    # seed.number  <-  sample.int(10000, 1) # set seed for the cv
+    # set.seed(seed.number)
     mdcv <- xgb.cv(data = dtrain, params = param,  
                    nfold = cv.nfold, nrounds = cv.nround,
                    verbose = F, early_stopping_rounds = 8, maximize = FALSE)
@@ -571,14 +582,14 @@ for (iter in 1:100) {
     if (min_rmse < best_rmse) {
         best_rmse <- min_rmse
         best_rmse_index <- min_rmse_index
-        best_seednumber <- seed.number
+        # best_seednumber <- seed.number
         best_param <- param
     }
 }
 
 # The best index (min_rmse_index) is the best "nround" in the model
 nround = best_rmse_index
-set.seed(best_seednumber)
+# set.seed(best_seednumber)
 xg_mod <- xgboost(data = dtest, params = best_param, nround = nround, verbose = F)
 
 # Check error in testing data
@@ -604,45 +615,45 @@ yhat_xg <- predict(xg_mod, dtest)
 #                               alpha = c(0, 1, 100),
 #                               lambda = c(0, 1, 100)),
 #                           objective = "reg:squarederror")
-
-xgb_model_linear <- train(Margin ~.,
-                          data = train,
-                          method = "xgbLinear",
-                          metric = "rmse",
-                          trControl = trainControl(
-                              method = "repeatedcv",
-                              number = 3,
-                              repeats = 3,
-                              verboseIter = T,
-                              search = "grid"),
-                          objective = "reg:squarederror",
-                          tuneLength = 3)
-
-plot(xgb_model_linear)
-
-test$pred <- predict(xgb_model_linear, test)
-(RMSE(test$pred, test$Margin))
-
-
-expand.grid
-
-
-
-
-#### Visualizations
-# Get the feature real names
-names <- dimnames(data.matrix(X[,-1]))[[2]]
-# Compute feature importance matrix
-importance_matrix <- xgb.importance(names, model = xgb)
-# Nice graph
-xgb.plot.importance(importance_matrix[1:10,])
-
-
+# 
+# xgb_model_linear <- train(Margin ~.,
+#                           data = train,
+#                           method = "xgbLinear",
+#                           metric = "rmse",
+#                           trControl = trainControl(
+#                               method = "repeatedcv",
+#                               number = 3,
+#                               repeats = 3,
+#                               verboseIter = T,
+#                               search = "grid"),
+#                           objective = "reg:squarederror",
+#                           tuneLength = 3)
+# 
+# plot(xgb_model_linear)
+# 
+# test$pred <- predict(xgb_model_linear, test)
+# (RMSE(test$pred, test$Margin))
+# 
+# 
+# expand.grid
+# 
+# 
+# 
+# 
+# #### Visualizations
+# # Get the feature real names
+# names <- dimnames(data.matrix(X[,-1]))[[2]]
+# # Compute feature importance matrix
+# importance_matrix <- xgb.importance(names, model = xgb)
+# # Nice graph
+# xgb.plot.importance(importance_matrix[1:10,])
 
 
 
 ########### ML ------------------------------------------------
 
+nba_cla <- nba %>%
+    select(8,9:78)
 
 ## no correlation - eFG
 nba_cla <- nba %>%
@@ -890,7 +901,7 @@ calc_class_err(actual = test$Win,
                predicted = knn(train = train[,-1],
                                test  = test[,-1],
                                cl    = train$Win,
-                               k     = 179))
+                               k     = 104))
 
 
 
@@ -998,7 +1009,7 @@ table(predicted = nba_bag_tst_pred, actual = test$Win)
 (bag_tst_acc = calc_acc(predicted = nba_bag_tst_pred, actual = test$Win))
 
 # random forest
-nba_forest = randomForest(Win ~ ., data = train, mtry = 4, importance = TRUE, ntrees = 500)
+nba_forest = randomForest(Win ~ ., data = train, mtry = 1, importance = TRUE, ntrees = 500)
 nba_forest
 
 nba_forest_tst_perd = predict(nba_forest, newdata = test)
@@ -1011,10 +1022,10 @@ nba_trn_mod = train
 nba_trn_mod$Win = as.numeric(ifelse(nba_trn_mod$Win == 1, 1, 0))
 
 nba_boost = gbm(Win ~ ., data = nba_trn_mod, distribution = "bernoulli", 
-                n.trees = 2500, interaction.depth = 1, shrinkage = 0.01)
+                n.trees = 500, interaction.depth = 4, shrinkage = 0.01)
 nba_boost
 
-nba_boost_tst_pred = ifelse(predict(nba_boost, test, n.trees = 2500, "response") > 0.5, 
+nba_boost_tst_pred = ifelse(predict(nba_boost, test, n.trees = 500, "response") > 0.5, 
                             1, 0)
 table(predicted = nba_boost_tst_pred, actual = test$Win)
 
@@ -1032,14 +1043,15 @@ table(predicted = nba_boost_tst_pred, actual = test$Win)
 #### SVM #### - classification
 #############
 
-nba_cla$Win <- as.factor(nba_cla$Win)
-levels(nba_cla$Win)=c("No","Yes")
+# nba_cla$Win <- as.factor(nba_cla$Win)
+# levels(nba_cla$Win)=c("No","Yes")
+# levels(train$Win)=c("No","Yes")
 
 # Setup for cross validation
 ctrl <- trainControl(method="repeatedcv",   # 10fold cross validation
                      repeats=3,         # do 5 repetitions of cv
                      summaryFunction=twoClassSummary,   # Use AUC to pick the best model
-                     classProbs=TRUE)
+                     classProbs=F)
 
 
 #Train and Tune the SVM
@@ -1053,8 +1065,8 @@ svm.tune <- train(Win ~ .,
 svm.tune
 
 
-modelsvm = svm(Win ~., train, cost=0.005, kernel = "linear")
-predYsvm = predict(modelsvm, test)
+modelsvm = svm(Win ~., train, cost=0.005, kernel = "linear", probability=F)
+predYsvm = as.numeric(predict(modelsvm, test, probability=F))
 misClassError(test$Win, predYsvm)
 
 
@@ -1134,7 +1146,7 @@ parameters_list = list()
 
 # Create 10,000 rows with random hyperparameters
 set.seed(214)
-for (iter in 1:5000){
+for (iter in 1:1000){
     param <- list(booster = "gbtree",
                   objective = "binary:logistic",
                   max_depth = sample(3:10, 1),
@@ -1236,13 +1248,22 @@ validation$pred_win_factor_tuned <- factor(ifelse(validation$pred_win_tuned > 0.
                                            labels=c("Loss","Win"))
 
 # Check accuracy with the confusion matrix
-confusionMatrix(validation$pred_win_factor_tuned, 
-                factor(validation$Win ,
+caret::confusionMatrix(validation$pred_win_factor_tuned, 
+                factor(validation$Win, 
                        labels=c("Loss", "Win")),
                 positive = "Win", 
                 dnn = c("Prediction", "Actual Data"))
 
+levels(validation$pred_win_factor_tuned)=c(0,1)
 
+misClassError(as.numeric(validation$Win), as.numeric(validation$pred_win_factor_tuned))
+
+# Test
+test$pred_win_base <- predict(xgb_base, dtest)
+test$Survived <- factor(ifelse(test$pred_win_base > 0.5, 1, 0))
+datasubmission_base <- cbind(as.data.frame(PassengerId), test$Win)
+datasubmission_base <- datasubmission_base %>%
+    rename("Win" = "test$Win")
 
 
 
@@ -1717,22 +1738,53 @@ margin_rmse
 
 
 
+#### Correlation -------------------------------------------------
+model <- lm(Margin ~., data = train)
+
+## all individual diagnostic measures with correlation matrix
+mctest(model, type="i", corr=TRUE)
+
+## VIF and correlation matrix with collinearity detection indication
+mctest(model, type="i", method="VIF", corr=TRUE)
+
+## both overall and individual collinearity diagnostics
+mctest(model, type="b")
+mctest(model, type="b", method="VIF", cor=TRUE)
+
+## all overall and vif with correlation matrix
+## VIF and CN desired threshold
+## eigenvalues without intercept term
+mctest(model, type="b", method="VIF", Inter=FALSE, vif=15, cn=35)
+
+## Individual collinearity diagnostic measures in matrix of 0 or 1
+mctest(model, all = TRUE)
+mctest(model, method = "VIF", all = TRUE)
+mctest(model, type="b", all = TRUE)
 
 
 
 
+cor_mx <- cor(nba[9:78])
+corrplot(cor_mx, method = "color", title = "Correlation Matrix", 
+         mar=c(0,0,1,0))
+
+cor_marg <- cor(nba_lin, nba_lin$Margin)
+cor_marg <- as.matrix(cor_marg[order(cor_marg[,1], decreasing = T),]) # ordered by highest correlation
+cor_marg
+
+
+cor_mx <- cor(nba_log)
+corrplot(cor_mx, method = "color", title = "Correlation Matrix", 
+         mar=c(0,0,1,0))
 
 
 
 
-
-
-
-
-
-
-
-
+setwd("/Users/Jesse/Desktop/")
+wb <- createWorkbook()
+addWorksheet(wb, sheetName = "cor")
+writeData(wb, sheet = "cor", x = cor_mx)
+saveWorkbook(wb, file = "/Users/Jesse/Desktop/cor_full2.xlsx")
 
 
 
