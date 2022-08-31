@@ -40,7 +40,7 @@ nba_lin <- nba %>%
 library(Boruta)
 
 # Perform Boruta search
-boruta_output <- Boruta(Margin ~ ., data=nba_lin, doTrace=2, maxRuns = 15) 
+boruta_output <- Boruta(Margin ~ ., data=nba_reg, doTrace=2) 
 
 # Get significant variables including tentatives
 boruta_signif <- getSelectedAttributes(boruta_output, withTentative = TRUE)

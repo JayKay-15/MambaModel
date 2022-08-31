@@ -18,8 +18,10 @@ library(mctest)
 rm(list=ls())
 
 # nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/ADJ.xlsx")
-nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1722_noadj.xlsx")
+# nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1722_noadj.xlsx")
 # nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1722.xlsx")
+nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1922.xlsx")
+nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1922_Adj.xlsx")
 
 nba_reg <- nba %>%
     select(7,9:78)
@@ -61,8 +63,6 @@ train[,-1] = predict(pre_proc_val, train[,-1])
 test[,-1] = predict(pre_proc_val, test[,-1])
 
 summary(train)
-
-
 
 
 ################
