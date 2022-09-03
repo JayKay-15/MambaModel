@@ -16,6 +16,8 @@ library(xgboost)
 library(mctest)
 library(corrplot)
 library(corrgram)
+# library(mlr)
+library(ROCR)
 
 rm(list=ls())
 
@@ -265,7 +267,7 @@ calc_class_err = function(actual, predicted) {
 
 
 set.seed(214)
-k_to_try = 1:500
+k_to_try = 1:250
 err_k = rep(x = 0, times = length(k_to_try))
 
 for (i in seq_along(k_to_try)) {
@@ -319,11 +321,11 @@ calc_acc = function(actual, predicted) {
 # classification
 # random forest
 oob = trainControl(method = "oob")
-cv_5 = trainControl(method = "cv", number = 5)
+cv_10 = trainControl(method="repeatedcv", number=10, repeats=3, search="grid")
 
 dim(train)
 
-rf_grid =  expand.grid(mtry = 1:26)
+rf_grid =  expand.grid(mtry = 1:71)
 
 set.seed(214)
 nba_rf_tune = train(Win ~ ., data = train,
@@ -442,32 +444,84 @@ table(predicted = nba_boost_tst_pred, actual = test$Win)
 #### SVM #### - classification
 #############
 
+train$Win <- as.factor(train$Win)
+levels(train$Win)=c("No","Yes")
 # nba_cla$Win <- as.factor(nba_cla$Win)
 # levels(nba_cla$Win)=c("No","Yes")
-# levels(train$Win)=c("No","Yes")
 
 # Setup for cross validation
-ctrl <- trainControl(method="repeatedcv",   # 10fold cross validation
-                     repeats=3,         # do 5 repetitions of cv
-                     summaryFunction=twoClassSummary,   # Use AUC to pick the best model
-                     classProbs=F)
+ctrl <- trainControl(method="cv", number = 5)
 
-
-#Train and Tune the SVM
 svm.tune <- train(Win ~ .,
                   data = train,
-                  method = "svmLinear",   # Radial kernel
-                  tuneLength = 10,       # 5 values of the cost function
-                  metric="ROC",
+                  method = "svmLinear", 
+                  tuneLength = 10,      
                   trControl=ctrl)
 
 svm.tune
 
-
-modelsvm = svm(Win ~., train, cost=0.005, kernel = "linear", probability=F)
-predYsvm = as.numeric(predict(modelsvm, test, probability=F))
+predYsvm = as.numeric(predict(svm.tune, test))
 misClassError(test$Win, predYsvm)
 
+
+
+
+
+### Linear Model
+grid <- expand.grid(C = c(0,0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2,5))
+ctrl <- trainControl(method="cv", number = 5)
+
+svm.tune <- train(Win ~ .,
+                  data = train,
+                  method = "svmLinear", 
+                  tuneLength = 10,      
+                  trControl=ctrl,
+                  tuneGrid = grid)
+
+svm.tune
+
+predYsvm = as.numeric(predict(svm.tune, test))
+misClassError(test$Win, predYsvm)
+svm.tune
+plot(svm.tune)
+
+
+
+### Radial Model
+ctrl <- trainControl(method="cv",
+                     number = 5,
+                     summaryFunction=twoClassSummary,
+                     classProbs=T)
+
+
+grid <- expand.grid(sigma = c(.01, .015, 0.2),
+                    C = c(0.75, 0.9, 1, 1.1, 1.25))
+
+svm.tune <- train(Win ~ .,
+                  data = train,
+                  method = "svmRadial",
+                  metric="ROC",
+                  tuneGrid = grid,
+                  trControl=ctrl)
+
+# Predict Target Label
+valX <- test[-1]
+pred <- predict(svm.tune, valX, type="prob")[2]
+
+misClassError(test$Win, pred)
+
+# Model Performance Statistics
+pred_val <- prediction(pred, test$Win)
+
+# Calculating Area under Curve
+perf_val <- performance(pred_val,"auc")
+perf_val
+
+# Calculating True Positive and False Positive Rate
+perf_val <- performance(pred_val, "tpr", "fpr")
+
+# Plot the ROC curve
+plot(perf_val, col = "green", lwd = 1.5)
 
 
 ############
@@ -487,6 +541,74 @@ win_error
 #### XGB #### - classification
 #############
 
+# y_train <- as.integer(train$Win)
+# y_test <- as.integer(test$Win)
+# X_train <- train %>% select(-1)
+# X_test <- test %>% select(-1)
+# 
+# dtrain <- xgb.DMatrix(data = as.matrix(X_train), label = y_train)
+# dtest <- xgb.DMatrix(data = as.matrix(X_test), label = y_test)
+# 
+# params <- list(
+#     booster = "gbtree", 
+#     objective = "binary:logistic", 
+#     eval_metric = "error",
+#     eta=0.01, 
+#     gamma=0, 
+#     max_depth=6, 
+#     min_child_weight=1, 
+#     subsample=1, 
+#     colsample_bytree=1)
+# 
+# xgbcv <- xgb.cv(
+#     params = params, 
+#     data = dtrain, 
+#     nrounds = 1000, 
+#     nfold = 10,
+#     print_every_n = 20, 
+#     early_stopping_rounds = 50, 
+#     maximize = F)
+# 
+# min(xgbcv$evaluation_log$test_error_mean)
+# 
+# params <- list(
+#     booster = "gbtree", 
+#     objective = "binary:logistic",
+#     eta=0.01, 
+#     gamma=0, 
+#     max_depth=6, 
+#     min_child_weight=1, 
+#     subsample=1, 
+#     colsample_bytree=1)
+# 
+# 
+# xgb1 <- xgb.train(
+#     params = params, 
+#     data = dtrain, 
+#     nrounds = 1000, 
+#     watchlist = list(val=dtest, train=dtrain), 
+#     print_every_n = 20, 
+#     early_stopping_rounds = 50, 
+#     maximize = F, 
+#     eval_metric = "error")
+# 
+# #model prediction
+# xgbpred <- predict(xgb1,dtest)
+# xgbpred <- ifelse(xgbpred > 0.5,1,0)
+# 
+# confusionMatrix(xgbpred, test$Win)
+# misClassError(xgbpred, test$Win)
+# 
+# mat <- xgb.importance(model = xgb_tuned)
+# xgb.plot.importance(importance_matrix = mat[1:20])
+
+
+
+
+
+
+
+
 # Randomly select 80% of the observations without replacement 
 set.seed(214)
 train_id <- sample(1:nrow(train), size = floor(0.8 * nrow(train)), replace=FALSE) 
@@ -495,15 +617,13 @@ train_id <- sample(1:nrow(train), size = floor(0.8 * nrow(train)), replace=FALSE
 training <- train[train_id,]
 validation <- train[-train_id,]
 
-
-
 # Returns the NA object unchanged, if not changed, NA would be dropped
 options(na.action='na.pass')
 
 # Prepare matrix for XGBoost algorithm
 training_matrix <- model.matrix(Win ~.-1, data = training)
 validation_matrix <- model.matrix(Win ~.-1, data = validation)
-test_matrix <-model.matrix(~.-1, data = test)
+test_matrix <-model.matrix(~.-1, data = test[-1])
 dtrain <- xgb.DMatrix(data = training_matrix, label = training$Win) 
 dvalid <- xgb.DMatrix(data = validation_matrix, label = validation$Win)
 dtest <- xgb.DMatrix(data = test_matrix)
@@ -515,26 +635,21 @@ params <- list(booster = "gbtree",
                objective = "binary:logistic")
 xgb_base <- xgb.train (params = params,
                        data = dtrain,
+                       eta = 0.01,
                        nrounds = 1000,
-                       print_every_n = 10,
-                       eval_metric = "auc",
+                       print_every_n = 50,
                        eval_metric = "error",
                        early_stopping_rounds = 50,
                        watchlist = list(train= dtrain, val= dvalid))
 
 
-
 # Make prediction on dvalid
 validation$pred_win_base <- predict(xgb_base, dvalid)
-validation$pred_win_factor_base <- factor(ifelse(validation$pred_win_base > 0.5, 1, 0), 
-                                          labels=c("Loss","Win"))
+validation$pred_win_factor_base <- ifelse(validation$pred_win_base > 0.5, 1, 0)
 
 # Check accuracy with the confusion matrix
-confusionMatrix(validation$pred_win_factor_base, 
-                factor(validation$Win ,
-                       labels=c("Loss", "Win")),
-                positive = "Win", 
-                dnn = c("Prediction", "Actual Data"))
+confusionMatrix(validation$pred_win_factor_base, validation$Win)
+misClassError(validation$pred_win_factor_base, validation$Win)
 
 # Take start time to measure time of random search algorithm
 start.time <- Sys.time()
@@ -545,14 +660,14 @@ parameters_list = list()
 
 # Create 10,000 rows with random hyperparameters
 set.seed(214)
-for (iter in 1:1000){
+for (iter in 1:500){
     param <- list(booster = "gbtree",
                   objective = "binary:logistic",
                   max_depth = sample(3:10, 1),
-                  eta = runif(1, .01, .3),
+                  eta = runif(1, .001, .01),
                   subsample = runif(1, .7, 1),
                   colsample_bytree = runif(1, .6, 1),
-                  min_child_weight = sample(0:10, 1)
+                  min_child_weight = sample(0:20, 1)
     )
     parameters <- as.data.frame(param)
     parameters_list[[iter]] <- parameters
@@ -604,24 +719,6 @@ randomsearch <- as.data.frame(randomsearch) %>%
     rename(val_acc = `1 - min(mdcv$evaluation_log$val_error)`) %>%
     arrange(-val_acc)
 
-# eFG
-# params <- list(booster = "gbtree", 
-#                objective = "binary:logistic",
-#                max_depth = 4,
-#                eta = 0.1480,
-#                subsample = 0.7353,
-#                colsample_bytree = 0.9768,
-#                min_child_weight = 4)
-
-# TS
-# params <- list(booster = "gbtree", 
-#                objective = "binary:logistic",
-#                max_depth = 10,
-#                eta = 0.2233,
-#                subsample = 0.8744,
-#                colsample_bytree = 0.8035,
-#                min_child_weight = 6)
-
 
 # Tuned-XGBoost model
 set.seed(214)
@@ -635,35 +732,26 @@ params <- list(booster = "gbtree",
 xgb_tuned <- xgb.train(params = params,
                        data = dtrain,
                        nrounds = 1000,
-                       print_every_n = 10,
-                       eval_metric = "auc",
+                       print_every_n = 100,
                        eval_metric = "error",
                        early_stopping_rounds = 30,
                        watchlist = list(train= dtrain, val= dvalid))
 
 # Make prediction on dvalid
 validation$pred_win_tuned <- predict(xgb_tuned, dvalid)
-validation$pred_win_factor_tuned <- factor(ifelse(validation$pred_win_tuned > 0.5, 1, 0), 
-                                           labels=c("Loss","Win"))
+validation$pred_win_factor_tuned <- ifelse(validation$pred_win_tuned > 0.5, 1, 0)
 
 # Check accuracy with the confusion matrix
-caret::confusionMatrix(validation$pred_win_factor_tuned, 
-                factor(validation$Win, 
-                       labels=c("Loss", "Win")),
-                positive = "Win", 
-                dnn = c("Prediction", "Actual Data"))
-
-levels(validation$pred_win_factor_tuned)=c(0,1)
-
+confusionMatrix(validation$pred_win_factor_tuned, validation$Win)
 misClassError(as.numeric(validation$Win), as.numeric(validation$pred_win_factor_tuned))
 
 # Test
 test$pred_win_base <- predict(xgb_base, dtest)
-test$Survived <- factor(ifelse(test$pred_win_base > 0.5, 1, 0))
-datasubmission_base <- cbind(as.data.frame(PassengerId), test$Win)
-datasubmission_base <- datasubmission_base %>%
-    rename("Win" = "test$Win")
+test$pred_win_base_factor <- ifelse(test$pred_win_base > 0.5, 1, 0)
+misClassError(test$Win, test$pred_win_base_factor)
 
+mat <- xgb.importance(model = xgb_tuned)
+xgb.plot.importance(importance_matrix = mat[1:20], rel_to_first = T)
 
 
 ########### Totals ------------------------------------------------
