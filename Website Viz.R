@@ -5,6 +5,10 @@ pacman::p_load(tidyverse, readxl, lubridate, openxlsx, shiny,
 # library(teamcolors)
 # rm(list=ls())
 
+rosters <- nbastatR::seasons_rosters(seasons = 2022)
+
+sched <- nbastatR::current_schedule()
+
 NBAdb <- DBI::dbConnect(RSQLite::SQLite(), 
                         "/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb.sqlite")
 
@@ -24,7 +28,6 @@ players_df_basic <- players_df_basic %>%
     collect() %>%
     filter(isSeasonCurrent == 1)
 
-
 players_df_adv <- players_df_adv %>%
     collect() %>%
     filter(isSeasonCurrent == 1)
@@ -34,11 +37,7 @@ team_dict <- team_dict %>%
 
 DBI::dbDisconnect(NBAdb)
 
-rosters <- nbastatR::seasons_rosters(seasons = 2022)
-
 td <- as_date("2022-05-15")
-
-sched <- nbastatR::current_schedule()
 
 slate <- sched %>%
     filter(dateGame == td) %>%
@@ -111,17 +110,19 @@ df <- read_xlsx(paste0("/Users/Jesse/Documents/MyStuff/NBA Betting/Backtest 2022
                         "Backtest_Results_2022_Tyra_All_Adj.xlsx"))
 df$Date <- as_date(df$Date)
 
-t <- seq(0.1,10,0.1)
+t <- seq(0.1,25,0.1)
+# t <- seq(0.01,1,0.01)
 b <- 1
 h <- length(t)
 bst_tot <- 0
+# bst_flt <- 10
 
 for (b in b:h) {
     
     flt <- as.numeric(t[b])
     
-    temp <- as.numeric(df %>% filter(Tyra_Spread_Edge >= flt) %>% 
-                           summarise(day_total = sum(Tyra_Spread_Result)))
+    temp <- as.numeric(df %>% filter(Tyra_Over_Edge >= flt) %>% 
+                           summarise(day_total = sum(Tyra_Over_Result)))
     
     if (temp > bst_tot) {
         bst_tot <- temp
@@ -129,11 +130,10 @@ for (b in b:h) {
     }
 }
 
-
 df %>%
-    filter(Tyra_Spread_Edge >= bst_flt) %>%
+    filter(Tyra_Over_Edge >= bst_flt) %>%
     group_by(Date) %>%
-    summarise(day_total = sum(Tyra_Spread_Result)) %>%
+    summarise(day_total = sum(Tyra_Over_Result)) %>%
     mutate(cume = cumsum(day_total)) %>%
     ggplot(aes(Date)) +
     geom_line(aes(y=cume, color="All Plays"), size=1) +
@@ -143,7 +143,11 @@ df %>%
 
 print(bst_tot)
 print(bst_flt)
-print(df %>% filter(Tyra_Spread_Edge >= bst_flt) %>% nrow())
+print(df %>% filter(Tyra_Over_Edge >= bst_flt) %>% nrow())
+
+
+
+
 
 
 ### players - old verison

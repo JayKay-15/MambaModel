@@ -64,20 +64,19 @@ plot(boruta_output, cex.axis=.7, las=2, xlab="", main="Variable Importance")
 library(caret)
 
 # Train an rpart model and compute variable importance
-set.seed(100)
+set.seed(214)
 rPartMod <- train(Margin ~ ., data=nba_lin, method="rpart")
 rpartImp <- varImp(rPartMod)
 print(rpartImp)
+head(rpartImp %>% arrange(desc(Overall)))
 
 # Train an RRF model and compute variable importance.
-set.seed(100)
+set.seed(214)
 rrfMod <- train(Margin ~ ., data=nba_lin, method="RRF")
 rrfImp <- varImp(rrfMod, scale=F)
 rrfImp
 
-plot(rrfImp, top = 20, main='Variable Importance')
-
-
+plot(rpartImp, top = 10, main='Variable Importance')
 
 ## 3. Lasso Regression ***
 library(glmnet)
@@ -449,12 +448,13 @@ mctest(model, type="b", all = TRUE)
 
 
 
-
-cor_mx <- cor(nba[9:78])
+library(corrplot)
+library(corrgram)
+cor_mx <- cor(nba_reg)
 corrplot(cor_mx, method = "color", title = "Correlation Matrix", 
          mar=c(0,0,1,0))
 
-cor_marg <- cor(nba_lin, nba_lin$Margin)
+cor_marg <- cor(nba_reg, nba_reg$Margin)
 cor_marg <- as.matrix(cor_marg[order(cor_marg[,1], decreasing = T),]) # ordered by highest correlation
 cor_marg
 

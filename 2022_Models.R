@@ -14,639 +14,16 @@ library(e1071)
 library(neuralnet)
 library(xgboost)
 library(mctest)
+library(corrplot)
+library(corrgram)
 
 rm(list=ls())
 
-# nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/ADJ.xlsx")
-# nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1722_noadj.xlsx")
-# nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1722.xlsx")
-nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1922.xlsx")
-nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1922_Adj.xlsx")
 
-nba_reg <- nba %>%
-    select(7,9:78)
+# nba<- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1422.xlsx")
+nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1422_adj.xlsx")
 
-# nba_reg <- nba %>%
-#     select(7,79:48)
-
-# nba <- nba %>%
-#     filter(Date > '2018-08-01')
-
-
-########### Spread ------------------------------------------------
-
-
-# regression nba stats
-
-## no correlation - eFG
-nba_reg <- nba %>%
-    select(7,
-           14,15,16,18,19,21,23,30,34,35,37,39,43,
-           49,50,51,53,54,56,58,65,69,70,72,74,78)
-
-## no correlation - ts
-nba_reg <- nba %>%
-    select(7,
-           14,15,16,18,19,21,24,30,34,35,37,40,43,
-           49,50,51,53,54,56,59,65,69,70,72,75,78)
-
-
-
-set.seed(214)
-sample <- sample.split(nba_reg$Margin, SplitRatio = .70)
-train <- nba_reg %>% filter(sample == TRUE)
-test <- nba_reg %>% filter(sample == FALSE)
-
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
-
-train[,-1] = predict(pre_proc_val, train[,-1])
-test[,-1] = predict(pre_proc_val, test[,-1])
-
-summary(train)
-
-
-################
-#### Linear #### - regression
-################
-
-lin_mod <- lm(Margin ~., data = train)
-summary(lin_mod)
-
-
-#Step 1 - create the evaluation metrics function
-eval_metrics <- function(model, df, predictions, target) {
-    resids = df[,target] - predictions
-    resids2 = resids**2
-    N = length(predictions)
-    r2 = as.character(round(summary(model)$r.squared, 4))
-    adj_r2 = as.character(round(summary(model)$adj.r.squared, 4))
-    print(adj_r2) #Adjusted R-squared
-    print(as.character(round(sqrt(sum(resids2)/N), 4))) #RMSE
-}
-# Step 2 - predicting and evaluating the model on train data
-predictions = predict(lin_mod, newdata = train)
-eval_metrics(lin_mod, train, predictions, target = 'Margin')
-
-# Step 3 - predicting and evaluating the model on test data
-predictions = predict(lin_mod, newdata = test)
-eval_metrics(lin_mod, test, predictions, target = 'Margin')
-
-
-
-# Visualizations
-# http://www.sthda.com/english/articles/39-regression-model-diagnostics/161-linear-regression-assumptions-and-diagnostics-in-r-essentials/  
-library(broom)
-ls_marg_diag <- augment(lin_mod)
-ls_marg_diag %>% 
-    mutate(index = 1:nrow(ls_marg_diag)) %>%
-    select(34,1,28:30,32:33) %>%
-    head()
-
-ls_marg_diag %>%
-    top_n(3, wt = .cooksd)
-
-plot(lin_mod)
-autoplot(lin_mod)
-
-
-
-
-### Ridge & Lasso models
-dummies <- dummyVars(Margin ~ ., data = nba_reg)
-train_dummies = predict(dummies, newdata = train)
-test_dummies = predict(dummies, newdata = test)
-print(dim(train_dummies)); print(dim(test_dummies))
-
-x = as.matrix(train_dummies)
-y_train = train$Margin
-
-x_test = as.matrix(test_dummies)
-y_test = test$Margin
-
-# Compute R^2 from true and predicted values
-eval_results <- function(true, predicted, df) {
-    SSE <- sum((predicted - true)^2)
-    SST <- sum((true - mean(true))^2)
-    R_square <- 1 - SSE / SST
-    RMSE = sqrt(SSE/nrow(df))
-    
-    
-    # Model performance metrics
-    data.frame(
-        Rsquare = R_square,
-        RMSE = RMSE
-    )
-    
-}
-
-
-
-### Ridge model
-lambdas <- 10^seq(2, -3, by = -.1)
-ridge_reg = glmnet(x, y_train, nlambda = 25, alpha = 0, family = 'gaussian', lambda = lambdas)
-
-par(mfrow = c(1, 2))
-plot(ridge_reg)
-plot(ridge_reg, xvar = "lambda", label = TRUE)
-
-summary(ridge_reg)
-
-
-cv_ridge <- cv.glmnet(x, y_train, alpha = 0, lambda = lambdas)
-plot(cv_ridge)
-
-optimal_lambda <- cv_ridge$lambda.min
-optimal_lambda
-
-
-# Prediction and evaluation on train data
-predictions_train <- predict(ridge_reg, s = optimal_lambda, newx = x)
-eval_results(y_train, predictions_train, train)
-
-# Prediction and evaluation on test data
-predictions_test <- predict(ridge_reg, s = optimal_lambda, newx = x_test)
-eval_results(y_test, predictions_test, test)
-
-
-
-
-# Lasso model
-lambdas <- 10^seq(2, -3, by = -.1)
-
-# Setting alpha = 1 implements lasso regression
-lasso_reg <- cv.glmnet(x, y_train, alpha = 1, lambda = lambdas, standardize = TRUE, nfolds = 5,
-                       family='gaussian', type.measure='mse')
-plot(lasso_reg)
-plot(lasso_reg$glmnet.fit, xvar="lambda", label=TRUE)
-
-cat('Min Lambda: ', lasso_reg$lambda.min, '\n 1Sd Lambda: ', lasso_reg$lambda.1se)
-df_coef <- round(as.matrix(coef(lasso_reg, s=lasso_reg$lambda.min)), 2)
-
-# See all contributing variables
-df_coef[df_coef[, 1] != 0, ]
-
-# Best 
-lambda_best <- lasso_reg$lambda.min 
-lambda_best
-
-
-lasso_model <- glmnet(x, y_train, alpha = 1, lambda = lambda_best, standardize = TRUE, family='gaussian')
-lasso_model$beta
-
-predictions_train <- predict(lasso_model, s = lambda_best, newx = x)
-eval_results(y_train, predictions_train, train)
-
-predictions_test <- predict(lasso_model, s = lambda_best, newx = x_test)
-eval_results(y_test, predictions_test, test)
-
-
-
-# Elastic Net
-# Set training control
-train_cont <- trainControl(method = "repeatedcv",
-                           number = 10,
-                           repeats = 3,
-                           search = "random",
-                           verboseIter = TRUE)
-
-
-# Train the model
-elastic_reg <- train(Margin ~ .,
-                     data = train,
-                     method = "glmnet",
-                     preProcess = c("center", "scale"),
-                     tuneLength = 10,
-                     trControl = train_cont)
-
-
-
-# Best tuning parameter
-elastic_reg$bestTune
-
-# Make predictions on training set
-predictions_train <- predict(elastic_reg, x)
-eval_results(y_train, predictions_train, train) 
-
-# Make predictions on test set
-predictions_test <- predict(elastic_reg, x_test)
-eval_results(y_test, predictions_test, test)
-
-# #plotting the model
-# 
-# plot(en, main = "Elastic Net Regression")
-# 
-# #plotting important variables
-# 
-# plot(varImp(en,scale=TRUE))
-
-
-
-#############
-#### KNN #### - regression
-#############
-
-
-# rmse function
-rmse = function(actual, predicted) {
-    sqrt(mean((actual - predicted) ^ 2))
-}
-
-# define helper function for getting knn.reg predictions
-# note: this function is highly specific to this situation and dataset
-make_knn_pred = function(k = 1, training, predicting) {
-    pred = FNN::knn.reg(as.data.frame(training[,-1]), 
-                        as.data.frame(predicting[,-1]), 
-                        y = as.numeric(train$Margin), k = k)$pred
-    act  = predicting$Margin
-    rmse(predicted = pred, actual = act)
-}
-
-
-# # define values of k to evaluate
-k = seq(1,201,5)
-# k = 1:101
-
-# get requested train RMSEs
-knn_trn_rmse = sapply(k, make_knn_pred, 
-                      training = train, 
-                      predicting = train)
-# get requested test RMSEs
-knn_tst_rmse = sapply(k, make_knn_pred, 
-                      training = train, 
-                      predicting = test)
-
-# determine "best" k
-best_k = k[which.min(knn_tst_rmse)]
-
-# find overfitting, underfitting, and "best"" k
-fit_status = ifelse(k < best_k, "Over", ifelse(k == best_k, "Best", "Under"))
-
-
-# summarize results
-knn_results = data.frame(
-    k,
-    round(knn_trn_rmse, 2),
-    round(knn_tst_rmse, 2),
-    fit_status
-)
-colnames(knn_results) = c("k", "Train RMSE", "Test RMSE", "Fit?")
-
-# display results
-knitr::kable(knn_results, escape = FALSE, booktabs = TRUE)
-
-
-
-
-
-knn_model <- FNN::knn.reg(train = as.data.frame(train[,-1]), 
-                          test = as.data.frame(test[,-1]), 
-                          y = as.numeric(train$Margin), 
-                          k = best_k)
-pred_y  = knn_model$pred
-
-
-mse = mean((as.numeric(unlist(test[,1])) - pred_y)^2)
-mae = caret::MAE(as.numeric(unlist(test[,1])), pred_y)
-rmse = caret::RMSE(as.numeric(unlist(test[,1])), pred_y)
-
-cat("MSE: ", mse, "MAE: ", mae, " RMSE: ", rmse)
-
-
-
-
-
-
-#################
-##### Tuning ####
-#################
-
-calc_rmse = function(actual, predicted) {
-    sqrt(mean((actual - predicted) ^ 2))
-}
-
-# regression
-# random forest
-oob = trainControl(method = "oob")
-cv_5 = trainControl(method = "cv", number = 5)
-
-dim(train)
-
-rf_grid =  expand.grid(mtry = 1:26)
-
-set.seed(214)
-nba_rf_tune = train(Margin ~ ., data = train,
-                    method = "rf", #ranger
-                    trControl = oob,
-                    verbose = T,
-                    tuneGrid = rf_grid)
-nba_rf_tune
-
-calc_rmse(predict(nba_rf_tune, test), test$Margin)
-
-nba_rf_tune$bestTune
-
-# boosting
-gbm_grid =  expand.grid(interaction.depth = 1:5,
-                        n.trees = (1:6) * 500,
-                        shrinkage = c(0.001, 0.01, 0.1),
-                        n.minobsinnode = 10)
-
-nba_gbm_tune = train(Margin ~ ., data = train,
-                     method = "gbm",
-                     trControl = cv_5,
-                     verbose = FALSE,
-                     tuneGrid = gbm_grid)
-
-plot(nba_gbm_tune)
-
-calc_rmse(predict(nba_gbm_tune, test), test$Margin)
-
-nba_gbm_tune$bestTune
-
-
-
-##################
-#### Ensemble ####
-##################
-
-
-# ensemble regression style
-
-library(rpart)
-library(rpart.plot)
-library(randomForest)
-library(gbm)
-library(caret)
-library(MASS)
-
-
-
-# tree
-nba_tree = rpart(Margin ~ ., data = train)
-
-nba_tree_tst_pred = predict(nba_tree, newdata = test)
-plot(nba_tree_tst_pred, test$Margin, 
-     xlab = "Predicted", ylab = "Actual", 
-     main = "Predicted vs Actual: Single Tree, Test Data",
-     col = "dodgerblue", pch = 20)
-grid()
-abline(0, 1, col = "darkorange", lwd = 2)
-
-(tree_tst_rmse = calc_rmse(nba_tree_tst_pred, test$Margin))
-
-# linear
-nba_lm = lm(Margin ~ ., data = train)
-
-nba_lm_tst_pred = predict(nba_lm, newdata = test)
-
-plot(nba_lm_tst_pred, test$Margin,
-     xlab = "Predicted", ylab = "Actual",
-     main = "Predicted vs Actual: Linear Model, Test Data",
-     col = "dodgerblue", pch = 20)
-grid()
-abline(0, 1, col = "darkorange", lwd = 2)
-
-(lm_tst_rmse = calc_rmse(nba_lm_tst_pred, test$Margin))
-
-# bagging
-nba_bag = randomForest(Margin ~ ., data = train, mtry = 71, 
-                       importance = TRUE, ntrees = 500)
-nba_bag
-
-nba_bag_tst_pred = predict(nba_bag, newdata = test)
-plot(nba_bag_tst_pred,test$Margin,
-     xlab = "Predicted", ylab = "Actual",
-     main = "Predicted vs Actual: Bagged Model, Test Data",
-     col = "dodgerblue", pch = 20)
-grid()
-abline(0, 1, col = "darkorange", lwd = 2)
-
-(bag_tst_rmse = calc_rmse(nba_bag_tst_pred, test$Margin))
-
-plot(nba_bag, col = "dodgerblue", lwd = 2, main = "Bagged Trees: Error vs Number of Trees")
-grid()
-
-# random forest
-nba_forest = randomForest(Margin ~ ., data = train, mtry = 18, 
-                          importance = TRUE, ntrees = 500)
-nba_forest
-
-importance(nba_forest, type = 1)
-
-varImpPlot(nba_forest, type = 1)
-
-nba_forest_tst_pred = predict(nba_forest, newdata = test)
-plot(nba_forest_tst_pred, test$Margin,
-     xlab = "Predicted", ylab = "Actual",
-     main = "Predicted vs Actual: Random Forest, Test Data",
-     col = "dodgerblue", pch = 20)
-grid()
-abline(0, 1, col = "darkorange", lwd = 2)
-
-(forest_tst_rmse = calc_rmse(nba_forest_tst_pred, test$Margin))
-
-nba_forest_trn_pred = predict(nba_forest, newdata = train)
-forest_trn_rmse = calc_rmse(nba_forest_trn_pred, train$Margin)
-forest_oob_rmse = calc_rmse(nba_forest$predicted, train$Margin)
-
-# boosting
-nba_boost = gbm(Margin ~ ., data = train, distribution = "gaussian", 
-          n.trees = 2000, interaction.depth = 2, shrinkage = 0.01)
-nba_boost
-
-tibble::as_tibble(summary(nba_boost))
-
-par(mfrow = c(1, 3))
-plot(nba_boost, i = "oeFG_home", col = "dodgerblue", lwd = 2)
-
-plot(nba_boost, i = "oeFG_away", col = "dodgerblue", lwd = 2)
-
-plot(nba_boost, i = "eFG_home", col = "dodgerblue", lwd = 2)
-
-plot(nba_boost, i = "eFG_away", col = "dodgerblue", lwd = 2)
-
-nba_boost_tst_pred = predict(nba_boost, newdata = test, n.trees = 1500)
-(boost_tst_rmse = calc_rmse(nba_boost_tst_pred, test$Margin))
-
-plot(nba_boost_tst_pred, test$Margin,
-     xlab = "Predicted", ylab = "Actual", 
-     main = "Predicted vs Actual: Boosted Model, Test Data",
-     col = "dodgerblue", pch = 20)
-grid()
-abline(0, 1, col = "darkorange", lwd = 2)
-
-# results
-(nba_rmse = data.frame(
-    Model = c("Single Tree", "Linear Model", "Bagging",  "Random Forest",  "Boosting"),
-    TestError = c(tree_tst_rmse, lm_tst_rmse, bag_tst_rmse, forest_tst_rmse, boost_tst_rmse)
-)
-)
-
-
-#############
-#### SVM #### - regression
-#############
-
-# Setup for cross validation
-ctrl <- trainControl(method = "repeatedcv",
-                     number = 10,
-                     repeats = 3)         
-
-# grid <- expand.grid(C = c(0,0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2,5))
-grid <- expand.grid(C = c(10, 5))
-svm.tune <- train(Margin ~ .,
-                  data = train,
-                  method = "svmLinear",
-                  tuneLength = 10,      
-                  tuneGrid = grid,
-                  trControl=ctrl)
-
-svm.tune
-plot(svm.tune)
-
-
-
-modelsvm = svm(Margin ~., train, cost=5, kernel = "linear")
-predsvm = predict(modelsvm, test)
-RMSEsvm = RMSE(predsvm, test$Margin)
-RMSEsvm
-
-
-
-############
-#### NN #### - regression
-############
-
-nn_model <- neuralnet(Margin ~., data = train, linear.output = T, rep = 1, threshold = .8, stepmax = 1e7)
-plot(nn_model)
-
-nn_margin <- compute(nn_model, test)
-
-margin_rmse <- RMSE(nn_margin$net.result, test$Margin)
-margin_rmse
-
-
-#############
-#### XGB #### - regression
-#############
-
-# xgb_params <- list(
-#     objective = "reg:squarederror",
-#     eval_metric = "rmse",
-#     eta = 0.01153427,
-#     max_depth = 9,
-#     subsample = 0.6890043,
-#     colsample_bytree = 0.5097622,
-#     min_child_weight = 35,
-#     max_delta_step = 7
-# )
-
-
-
-trainx <- as.matrix(train[-1])
-trainy <- as.matrix(train[1])
-testx <- as.matrix(test[-1])
-testy <- as.matrix(test[1])
-
-dtrain <- xgb.DMatrix(trainx, label = trainy)
-dtest <- xgb.DMatrix(testx, label = testy)
-
-
-best_param <- list()
-# best_seednumber <- 1234
-best_rmse <- Inf
-best_rmse_index <- 0
-
-set.seed(214)
-for (iter in 1:100) {
-    param <- list(objective = "reg:squarederror",
-                  eval_metric = "rmse",
-                  max_depth = sample(6:10, 1),
-                  eta = runif(1, .01, .3), # Learning rate, default: 0.3
-                  subsample = runif(1, .6, .9),
-                  colsample_bytree = runif(1, .5, .8), 
-                  min_child_weight = sample(1:40, 1),
-                  max_delta_step = sample(1:10, 1)
-    )
-    cv.nround <-  1000
-    cv.nfold <-  5 # 5-fold cross-validation
-    # seed.number  <-  sample.int(10000, 1) # set seed for the cv
-    # set.seed(seed.number)
-    mdcv <- xgb.cv(data = dtrain, params = param,  
-                   nfold = cv.nfold, nrounds = cv.nround,
-                   verbose = F, early_stopping_rounds = 8, maximize = FALSE)
-    
-    min_rmse_index  <-  mdcv$best_iteration
-    min_rmse <-  mdcv$evaluation_log[min_rmse_index]$test_rmse_mean
-    
-    if (min_rmse < best_rmse) {
-        best_rmse <- min_rmse
-        best_rmse_index <- min_rmse_index
-        # best_seednumber <- seed.number
-        best_param <- param
-    }
-}
-
-# The best index (min_rmse_index) is the best "nround" in the model
-nround = best_rmse_index
-# set.seed(best_seednumber)
-xg_mod <- xgboost(data = dtest, params = best_param, nround = nround, verbose = F)
-
-# Check error in testing data
-yhat_xg <- predict(xg_mod, dtest)
-(RMSE(yhat_xg, testy))
-
-# -----------------------------------------------------------
-
-# https://www.youtube.com/watch?v=xiqHCLSXbcA
-
-# xgb_model_linear <- train(Margin ~.,
-#                           data = train,
-#                           method = "xgbLinear",
-#                           metric = "rmse",
-#                           trControl = trainControl(
-#                               method = "repeatedcv",
-#                               number = 2,
-#                               repeats = 3,
-#                               verboseIter = T),
-#                           tuneGrid = expand.grid(
-#                               nrounds = c(100, 500, 1000, 1500),
-#                               eta = c(0.01, 0.05),
-#                               alpha = c(0, 1, 100),
-#                               lambda = c(0, 1, 100)),
-#                           objective = "reg:squarederror")
-# 
-# xgb_model_linear <- train(Margin ~.,
-#                           data = train,
-#                           method = "xgbLinear",
-#                           metric = "rmse",
-#                           trControl = trainControl(
-#                               method = "repeatedcv",
-#                               number = 3,
-#                               repeats = 3,
-#                               verboseIter = T,
-#                               search = "grid"),
-#                           objective = "reg:squarederror",
-#                           tuneLength = 3)
-# 
-# plot(xgb_model_linear)
-# 
-# test$pred <- predict(xgb_model_linear, test)
-# (RMSE(test$pred, test$Margin))
-# 
-# 
-# expand.grid
-# 
-# 
-# 
-# 
-# #### Visualizations
-# # Get the feature real names
-# names <- dimnames(data.matrix(X[,-1]))[[2]]
-# # Compute feature importance matrix
-# importance_matrix <- xgb.importance(names, model = xgb)
-# # Nice graph
-# xgb.plot.importance(importance_matrix[1:10,])
+nba <- nba %>% select(-1)
 
 
 
@@ -667,6 +44,18 @@ nba_cla <- nba %>%
            14,15,16,18,19,21,24,30,34,35,37,40,43,
            49,50,51,53,54,56,59,65,69,70,72,75,78)
 
+# ## highest correlation
+# nba_cla <- nba %>%
+#     select(8,9,23,24,25,39,40,44,46,52,58,59,60,62,72,74,75)
+# 
+# ## correlation > .15
+# nba_cla <- nba %>%
+#     select(8,60,74,75,40,25,44,59)
+
+# ## highest four factors
+# nba_cla <- nba %>%
+#     select(8,14,15,16,19,23,30,35,39,49,50,41,54,58,65,70,74)
+
 
 
 set.seed(214)
@@ -681,11 +70,21 @@ test[,-1] = predict(pre_proc_val, test[,-1])
 
 
 
+# # Correlation
+# cor_mx <- cor(nba_cla)
+# corrplot(cor_mx, method = "color", title = "Correlation Matrix",
+#          mar=c(0,0,1,0))
+# 
+# cor_win <- cor(nba_cla, nba_cla$Win)
+# cor_win <- as.matrix(cor_win[order(cor_win[,1], decreasing = T),]) # ordered by highest correlation
+# cor_win
+
+
+
 ### logistic model
 
 log_mod <- glm(Win ~., data = train, family = "binomial")
 summary(log_mod)
-
 
 
 # predicting and evaluating the model on test data
@@ -866,7 +265,7 @@ calc_class_err = function(actual, predicted) {
 
 
 set.seed(214)
-k_to_try = 1:250
+k_to_try = 1:500
 err_k = rep(x = 0, times = length(k_to_try))
 
 for (i in seq_along(k_to_try)) {
@@ -1809,4 +1208,632 @@ plot(cal, legend=T)
 
 
 
+
+
+
+#### Old Spread Code ---------------------------------
+nba_reg <- nba %>%
+    select(7,9:78)
+
+# nba_reg <- nba %>%
+#     select(7,79:48)
+
+# nba <- nba %>%
+#     filter(Date > '2018-08-01')
+
+########### Spread ------------------------------------------------
+
+
+# regression nba stats
+
+## no correlation - eFG
+nba_reg <- nba %>%
+    select(7,
+           14,15,16,18,19,21,23,30,34,35,37,39,43,
+           49,50,51,53,54,56,58,65,69,70,72,74,78)
+
+## no correlation - ts
+nba_reg <- nba %>%
+    select(7,
+           14,15,16,18,19,21,24,30,34,35,37,40,43,
+           49,50,51,53,54,56,59,65,69,70,72,75,78)
+
+
+
+set.seed(214)
+sample <- sample.split(nba_reg$Margin, SplitRatio = .70)
+train <- nba_reg %>% filter(sample == TRUE)
+test <- nba_reg %>% filter(sample == FALSE)
+
+pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
+
+train[,-1] = predict(pre_proc_val, train[,-1])
+test[,-1] = predict(pre_proc_val, test[,-1])
+
+# train <- nba_reg
+summary(train)
+
+
+################
+#### Linear #### - regression
+################
+
+lin_mod <- lm(Margin ~., data = train)
+summary(lin_mod)
+
+
+#Step 1 - create the evaluation metrics function
+eval_metrics <- function(model, df, predictions, target) {
+    resids = df[,target] - predictions
+    resids2 = resids**2
+    N = length(predictions)
+    r2 = as.character(round(summary(model)$r.squared, 4))
+    adj_r2 = as.character(round(summary(model)$adj.r.squared, 4))
+    print(adj_r2) #Adjusted R-squared
+    print(as.character(round(sqrt(sum(resids2)/N), 4))) #RMSE
+}
+# Step 2 - predicting and evaluating the model on train data
+predictions = predict(lin_mod, newdata = train)
+eval_metrics(lin_mod, train, predictions, target = 'Margin')
+
+# Step 3 - predicting and evaluating the model on test data
+predictions = predict(lin_mod, newdata = test)
+eval_metrics(lin_mod, test, predictions, target = 'Margin')
+
+
+
+# Visualizations
+# http://www.sthda.com/english/articles/39-regression-model-diagnostics/161-linear-regression-assumptions-and-diagnostics-in-r-essentials/  
+library(broom)
+ls_marg_diag <- augment(lin_mod)
+ls_marg_diag %>% 
+    mutate(index = 1:nrow(ls_marg_diag)) %>%
+    select(34,1,28:30,32:33) %>%
+    head()
+
+ls_marg_diag %>%
+    top_n(3, wt = .cooksd)
+
+plot(lin_mod)
+autoplot(lin_mod)
+
+
+
+
+### Ridge & Lasso models
+dummies <- dummyVars(Margin ~ ., data = nba_reg)
+train_dummies = predict(dummies, newdata = train)
+test_dummies = predict(dummies, newdata = test)
+print(dim(train_dummies)); print(dim(test_dummies))
+
+x = as.matrix(train_dummies)
+y_train = train$Margin
+
+x_test = as.matrix(test_dummies)
+y_test = test$Margin
+
+# Compute R^2 from true and predicted values
+eval_results <- function(true, predicted, df) {
+    SSE <- sum((predicted - true)^2)
+    SST <- sum((true - mean(true))^2)
+    R_square <- 1 - SSE / SST
+    RMSE = sqrt(SSE/nrow(df))
+    
+    
+    # Model performance metrics
+    data.frame(
+        Rsquare = R_square,
+        RMSE = RMSE
+    )
+    
+}
+
+
+
+### Ridge model
+lambdas <- 10^seq(2, -3, by = -.1)
+ridge_reg = glmnet(x, y_train, nlambda = 25, alpha = 0, family = 'gaussian', lambda = lambdas)
+
+par(mfrow = c(1, 2))
+plot(ridge_reg)
+plot(ridge_reg, xvar = "lambda", label = TRUE)
+
+summary(ridge_reg)
+
+
+cv_ridge <- cv.glmnet(x, y_train, alpha = 0, lambda = lambdas)
+plot(cv_ridge)
+
+optimal_lambda <- cv_ridge$lambda.min
+optimal_lambda
+
+
+# Prediction and evaluation on train data
+predictions_train <- predict(ridge_reg, s = optimal_lambda, newx = x)
+eval_results(y_train, predictions_train, train)
+
+# Prediction and evaluation on test data
+predictions_test <- predict(ridge_reg, s = optimal_lambda, newx = x_test)
+eval_results(y_test, predictions_test, test)
+
+
+
+
+# Lasso model
+lambdas <- 10^seq(2, -3, by = -.1)
+
+# Setting alpha = 1 implements lasso regression
+lasso_reg <- cv.glmnet(x, y_train, alpha = 1, lambda = lambdas, standardize = TRUE, nfolds = 5,
+                       family='gaussian', type.measure='mse')
+plot(lasso_reg)
+plot(lasso_reg$glmnet.fit, xvar="lambda", label=TRUE)
+
+cat('Min Lambda: ', lasso_reg$lambda.min, '\n 1Sd Lambda: ', lasso_reg$lambda.1se)
+df_coef <- round(as.matrix(coef(lasso_reg, s=lasso_reg$lambda.min)), 2)
+
+# See all contributing variables
+df_coef[df_coef[, 1] != 0, ]
+
+# Best 
+lambda_best <- lasso_reg$lambda.min 
+lambda_best
+
+
+lasso_model <- glmnet(x, y_train, alpha = 1, lambda = lambda_best, standardize = TRUE, family='gaussian')
+lasso_model$beta
+
+predictions_train <- predict(lasso_model, s = lambda_best, newx = x)
+eval_results(y_train, predictions_train, train)
+
+predictions_test <- predict(lasso_model, s = lambda_best, newx = x_test)
+eval_results(y_test, predictions_test, test)
+
+
+
+# Elastic Net
+# Set training control
+train_cont <- trainControl(method = "repeatedcv",
+                           number = 10,
+                           repeats = 3,
+                           search = "random",
+                           verboseIter = TRUE)
+
+
+# Train the model
+elastic_reg <- train(Margin ~ .,
+                     data = train,
+                     method = "glmnet",
+                     preProcess = c("center", "scale"),
+                     tuneLength = 10,
+                     trControl = train_cont)
+
+
+
+# Best tuning parameter
+elastic_reg$bestTune
+
+# Make predictions on training set
+predictions_train <- predict(elastic_reg, x)
+eval_results(y_train, predictions_train, train) 
+
+# Make predictions on test set
+predictions_test <- predict(elastic_reg, x_test)
+eval_results(y_test, predictions_test, test)
+
+# #plotting the model
+# 
+# plot(en, main = "Elastic Net Regression")
+# 
+# #plotting important variables
+# 
+# plot(varImp(en,scale=TRUE))
+
+
+
+#############
+#### KNN #### - regression
+#############
+
+
+# rmse function
+rmse = function(actual, predicted) {
+    sqrt(mean((actual - predicted) ^ 2))
+}
+
+# define helper function for getting knn.reg predictions
+# note: this function is highly specific to this situation and dataset
+make_knn_pred = function(k = 1, training, predicting) {
+    pred = FNN::knn.reg(as.data.frame(training[,-1]), 
+                        as.data.frame(predicting[,-1]), 
+                        y = as.numeric(train$Margin), k = k)$pred
+    act  = predicting$Margin
+    rmse(predicted = pred, actual = act)
+}
+
+
+# # define values of k to evaluate
+k = seq(1,201,5)
+# k = 1:101
+
+# get requested train RMSEs
+knn_trn_rmse = sapply(k, make_knn_pred, 
+                      training = train, 
+                      predicting = train)
+# get requested test RMSEs
+knn_tst_rmse = sapply(k, make_knn_pred, 
+                      training = train, 
+                      predicting = test)
+
+# determine "best" k
+best_k = k[which.min(knn_tst_rmse)]
+
+# find overfitting, underfitting, and "best"" k
+fit_status = ifelse(k < best_k, "Over", ifelse(k == best_k, "Best", "Under"))
+
+
+# summarize results
+knn_results = data.frame(
+    k,
+    round(knn_trn_rmse, 2),
+    round(knn_tst_rmse, 2),
+    fit_status
+)
+colnames(knn_results) = c("k", "Train RMSE", "Test RMSE", "Fit?")
+
+# display results
+knitr::kable(knn_results, escape = FALSE, booktabs = TRUE)
+
+
+
+
+
+knn_model <- FNN::knn.reg(train = as.data.frame(train[,-1]), 
+                          test = as.data.frame(test[,-1]), 
+                          y = as.numeric(train$Margin), 
+                          k = best_k)
+pred_y  = knn_model$pred
+
+
+mse = mean((as.numeric(unlist(test[,1])) - pred_y)^2)
+mae = caret::MAE(as.numeric(unlist(test[,1])), pred_y)
+rmse = caret::RMSE(as.numeric(unlist(test[,1])), pred_y)
+
+cat("MSE: ", mse, "MAE: ", mae, " RMSE: ", rmse)
+
+
+
+
+
+
+#################
+##### Tuning ####
+#################
+
+calc_rmse = function(actual, predicted) {
+    sqrt(mean((actual - predicted) ^ 2))
+}
+
+# regression
+# random forest
+oob = trainControl(method = "oob")
+cv_5 = trainControl(method = "cv", number = 5)
+
+dim(train)
+
+rf_grid =  expand.grid(mtry = 1:26)
+
+set.seed(214)
+nba_rf_tune = train(Margin ~ ., data = train,
+                    method = "rf", #ranger
+                    trControl = oob,
+                    verbose = T,
+                    tuneGrid = rf_grid)
+nba_rf_tune
+
+calc_rmse(predict(nba_rf_tune, test), test$Margin)
+
+nba_rf_tune$bestTune
+
+# boosting
+gbm_grid =  expand.grid(interaction.depth = 1:5,
+                        n.trees = (1:6) * 500,
+                        shrinkage = c(0.001, 0.01, 0.1),
+                        n.minobsinnode = 10)
+
+nba_gbm_tune = train(Margin ~ ., data = train,
+                     method = "gbm",
+                     trControl = cv_5,
+                     verbose = FALSE,
+                     tuneGrid = gbm_grid)
+
+plot(nba_gbm_tune)
+
+calc_rmse(predict(nba_gbm_tune, test), test$Margin)
+
+nba_gbm_tune$bestTune
+
+
+
+##################
+#### Ensemble ####
+##################
+
+
+# ensemble regression style
+
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(gbm)
+library(caret)
+library(MASS)
+
+
+
+# tree
+nba_tree = rpart(Margin ~ ., data = train)
+
+nba_tree_tst_pred = predict(nba_tree, newdata = test)
+plot(nba_tree_tst_pred, test$Margin, 
+     xlab = "Predicted", ylab = "Actual", 
+     main = "Predicted vs Actual: Single Tree, Test Data",
+     col = "dodgerblue", pch = 20)
+grid()
+abline(0, 1, col = "darkorange", lwd = 2)
+
+(tree_tst_rmse = calc_rmse(nba_tree_tst_pred, test$Margin))
+
+# linear
+nba_lm = lm(Margin ~ ., data = train)
+
+nba_lm_tst_pred = predict(nba_lm, newdata = test)
+
+plot(nba_lm_tst_pred, test$Margin,
+     xlab = "Predicted", ylab = "Actual",
+     main = "Predicted vs Actual: Linear Model, Test Data",
+     col = "dodgerblue", pch = 20)
+grid()
+abline(0, 1, col = "darkorange", lwd = 2)
+
+(lm_tst_rmse = calc_rmse(nba_lm_tst_pred, test$Margin))
+
+# bagging
+nba_bag = randomForest(Margin ~ ., data = train, mtry = 71, 
+                       importance = TRUE, ntrees = 500)
+nba_bag
+
+nba_bag_tst_pred = predict(nba_bag, newdata = test)
+plot(nba_bag_tst_pred,test$Margin,
+     xlab = "Predicted", ylab = "Actual",
+     main = "Predicted vs Actual: Bagged Model, Test Data",
+     col = "dodgerblue", pch = 20)
+grid()
+abline(0, 1, col = "darkorange", lwd = 2)
+
+(bag_tst_rmse = calc_rmse(nba_bag_tst_pred, test$Margin))
+
+plot(nba_bag, col = "dodgerblue", lwd = 2, main = "Bagged Trees: Error vs Number of Trees")
+grid()
+
+# random forest
+nba_forest = randomForest(Margin ~ ., data = train, mtry = 18, 
+                          importance = TRUE, ntrees = 500)
+nba_forest
+
+importance(nba_forest, type = 1)
+
+varImpPlot(nba_forest, type = 1)
+
+nba_forest_tst_pred = predict(nba_forest, newdata = test)
+plot(nba_forest_tst_pred, test$Margin,
+     xlab = "Predicted", ylab = "Actual",
+     main = "Predicted vs Actual: Random Forest, Test Data",
+     col = "dodgerblue", pch = 20)
+grid()
+abline(0, 1, col = "darkorange", lwd = 2)
+
+(forest_tst_rmse = calc_rmse(nba_forest_tst_pred, test$Margin))
+
+nba_forest_trn_pred = predict(nba_forest, newdata = train)
+forest_trn_rmse = calc_rmse(nba_forest_trn_pred, train$Margin)
+forest_oob_rmse = calc_rmse(nba_forest$predicted, train$Margin)
+
+# boosting
+nba_boost = gbm(Margin ~ ., data = train, distribution = "gaussian", 
+                n.trees = 2000, interaction.depth = 2, shrinkage = 0.01)
+nba_boost
+
+tibble::as_tibble(summary(nba_boost))
+
+par(mfrow = c(1, 3))
+plot(nba_boost, i = "oeFG_home", col = "dodgerblue", lwd = 2)
+
+plot(nba_boost, i = "oeFG_away", col = "dodgerblue", lwd = 2)
+
+plot(nba_boost, i = "eFG_home", col = "dodgerblue", lwd = 2)
+
+plot(nba_boost, i = "eFG_away", col = "dodgerblue", lwd = 2)
+
+nba_boost_tst_pred = predict(nba_boost, newdata = test, n.trees = 1500)
+(boost_tst_rmse = calc_rmse(nba_boost_tst_pred, test$Margin))
+
+plot(nba_boost_tst_pred, test$Margin,
+     xlab = "Predicted", ylab = "Actual", 
+     main = "Predicted vs Actual: Boosted Model, Test Data",
+     col = "dodgerblue", pch = 20)
+grid()
+abline(0, 1, col = "darkorange", lwd = 2)
+
+# results
+(nba_rmse = data.frame(
+    Model = c("Single Tree", "Linear Model", "Bagging",  "Random Forest",  "Boosting"),
+    TestError = c(tree_tst_rmse, lm_tst_rmse, bag_tst_rmse, forest_tst_rmse, boost_tst_rmse)
+)
+)
+
+
+#############
+#### SVM #### - regression
+#############
+
+# Setup for cross validation
+ctrl <- trainControl(method = "repeatedcv",
+                     number = 10,
+                     repeats = 3)         
+
+# grid <- expand.grid(C = c(0,0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2,5))
+grid <- expand.grid(C = c(10, 5))
+svm.tune <- train(Margin ~ .,
+                  data = train,
+                  method = "svmLinear",
+                  tuneLength = 10,      
+                  tuneGrid = grid,
+                  trControl=ctrl)
+
+svm.tune
+plot(svm.tune)
+
+
+
+modelsvm = svm(Margin ~., train, cost=5, kernel = "linear")
+predsvm = predict(modelsvm, test)
+RMSEsvm = RMSE(predsvm, test$Margin)
+RMSEsvm
+
+
+
+############
+#### NN #### - regression
+############
+
+nn_model <- neuralnet(Margin ~., data = train, linear.output = T, rep = 1, threshold = .8, stepmax = 1e7)
+plot(nn_model)
+
+nn_margin <- compute(nn_model, test)
+
+margin_rmse <- RMSE(nn_margin$net.result, test$Margin)
+margin_rmse
+
+
+#############
+#### XGB #### - regression
+#############
+
+# xgb_params <- list(
+#     objective = "reg:squarederror",
+#     eval_metric = "rmse",
+#     eta = 0.01153427,
+#     max_depth = 9,
+#     subsample = 0.6890043,
+#     colsample_bytree = 0.5097622,
+#     min_child_weight = 35,
+#     max_delta_step = 7
+# )
+
+
+
+trainx <- as.matrix(train[-1])
+trainy <- as.matrix(train[1])
+testx <- as.matrix(test[-1])
+testy <- as.matrix(test[1])
+
+dtrain <- xgb.DMatrix(trainx, label = trainy)
+dtest <- xgb.DMatrix(testx, label = testy)
+
+
+best_param <- list()
+# best_seednumber <- 1234
+best_rmse <- Inf
+best_rmse_index <- 0
+
+set.seed(214)
+for (iter in 1:100) {
+    param <- list(objective = "reg:squarederror",
+                  eval_metric = "rmse",
+                  max_depth = sample(6:10, 1),
+                  eta = runif(1, .01, .3), # Learning rate, default: 0.3
+                  subsample = runif(1, .6, .9),
+                  colsample_bytree = runif(1, .5, .8), 
+                  min_child_weight = sample(1:40, 1),
+                  max_delta_step = sample(1:10, 1)
+    )
+    cv.nround <-  1000
+    cv.nfold <-  5 # 5-fold cross-validation
+    # seed.number  <-  sample.int(10000, 1) # set seed for the cv
+    # set.seed(seed.number)
+    mdcv <- xgb.cv(data = dtrain, params = param,  
+                   nfold = cv.nfold, nrounds = cv.nround,
+                   verbose = F, early_stopping_rounds = 8, maximize = FALSE)
+    
+    min_rmse_index  <-  mdcv$best_iteration
+    min_rmse <-  mdcv$evaluation_log[min_rmse_index]$test_rmse_mean
+    
+    if (min_rmse < best_rmse) {
+        best_rmse <- min_rmse
+        best_rmse_index <- min_rmse_index
+        # best_seednumber <- seed.number
+        best_param <- param
+    }
+}
+
+# The best index (min_rmse_index) is the best "nround" in the model
+nround = best_rmse_index
+# set.seed(best_seednumber)
+xg_mod <- xgboost(data = dtest, params = best_param, nround = nround, verbose = F)
+
+# Check error in testing data
+yhat_xg <- predict(xg_mod, dtest)
+(RMSE(yhat_xg, testy))
+
+# -----------------------------------------------------------
+
+# https://www.youtube.com/watch?v=xiqHCLSXbcA
+
+# xgb_model_linear <- train(Margin ~.,
+#                           data = train,
+#                           method = "xgbLinear",
+#                           metric = "rmse",
+#                           trControl = trainControl(
+#                               method = "repeatedcv",
+#                               number = 2,
+#                               repeats = 3,
+#                               verboseIter = T),
+#                           tuneGrid = expand.grid(
+#                               nrounds = c(100, 500, 1000, 1500),
+#                               eta = c(0.01, 0.05),
+#                               alpha = c(0, 1, 100),
+#                               lambda = c(0, 1, 100)),
+#                           objective = "reg:squarederror")
+# 
+# xgb_model_linear <- train(Margin ~.,
+#                           data = train,
+#                           method = "xgbLinear",
+#                           metric = "rmse",
+#                           trControl = trainControl(
+#                               method = "repeatedcv",
+#                               number = 3,
+#                               repeats = 3,
+#                               verboseIter = T,
+#                               search = "grid"),
+#                           objective = "reg:squarederror",
+#                           tuneLength = 3)
+# 
+# plot(xgb_model_linear)
+# 
+# test$pred <- predict(xgb_model_linear, test)
+# (RMSE(test$pred, test$Margin))
+# 
+# 
+# expand.grid
+# 
+# 
+# 
+# 
+# #### Visualizations
+# # Get the feature real names
+# names <- dimnames(data.matrix(X[,-1]))[[2]]
+# # Compute feature importance matrix
+# importance_matrix <- xgb.importance(names, model = xgb)
+# # Nice graph
+# xgb.plot.importance(importance_matrix[1:10,])
 
