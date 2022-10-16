@@ -1,0 +1,226 @@
+### Edge Analysis ----
+
+library(tidyverse)
+library(lubridate)
+library(data.table)
+
+# if (!require("pacman")) install.packages("pacman"); library(pacman)
+# pacman::p_load(tidyverse, readxl, lubridate, openxlsx, nbastatR, rvest, data.table)
+
+rm(list=ls())
+
+setwd("/Users/Jesse/Documents/MyStuff/NBA Betting/MAMBA-NBA/")
+
+options(scipen = 999)
+
+results_book <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/Archives/NBA-Betting-21-22/Results.xlsx")
+results_book$Date <- as_date(results_book$Date)
+
+
+
+### Add Wager columns for calculating ML ROI
+results_book <- results_book %>%
+    mutate(ML_Wager = ifelse(ML < 100, ML/-100, 1))
+
+combos_s <- lapply(1:7, function(x) combn(c("Kendall_Spread_Edge","Tyra_Spread_Edge","Gisele_Spread_Edge",
+                                             "Kate_Spread_Edge","Cindy_Spread_Edge","Naomi_Spread_Edge",
+                                             "Adriana_Spread_Edge"), x, simplify = FALSE))
+combos_s <- unlist(combos_s, recursive = F)
+
+combos_result_s <- lapply(1:7, function(x) combn(c("Kendall_Spread_Result","Tyra_Spread_Result","Gisele_Spread_Result",
+                                                    "Kate_Spread_Result","Cindy_Spread_Result","Naomi_Spread_Result",
+                                                    "Adriana_Spread_Result"), x, simplify = FALSE))
+combos_result_s <- unlist(combos_result_s, recursive = F)
+
+combos_m <- lapply(1:7, function(x) combn(c("Kendall_ML_Edge","Tyra_ML_Edge","Gisele_ML_Edge",
+                                             "Kate_ML_Edge","Cindy_ML_Edge","Naomi_ML_Edge",
+                                             "Adriana_ML_Edge"), x, simplify = FALSE))
+combos_m <- unlist(combos_m, recursive = F)
+
+combos_result_m <- lapply(1:7, function(x) combn(c("Kendall_ML_Result","Tyra_ML_Result","Gisele_ML_Result",
+                                                    "Kate_ML_Result","Cindy_ML_Result","Naomi_ML_Result",
+                                                    "Adriana_ML_Result"), x, simplify = FALSE))
+combos_result_m <- unlist(combos_result_m, recursive = F)
+
+combos_o <- lapply(1:7, function(x) combn(c("Kendall_Over_Edge","Tyra_Over_Edge","Gisele_Over_Edge",
+                                             "Kate_Over_Edge","Cindy_Over_Edge","Naomi_Over_Edge",
+                                             "Adriana_Over_Edge"), x, simplify = FALSE))
+combos_o <- unlist(combos_o, recursive = F)
+
+
+combos_result_o <- lapply(1:7, function(x) combn(c("Kendall_Over_Result","Tyra_Over_Result","Gisele_Over_Result",
+                                                    "Kate_Over_Result","Cindy_Over_Result","Naomi_Over_Result",
+                                                    "Adriana_Over_Result"), x, simplify = FALSE))
+combos_result_o <- unlist(combos_result_o, recursive = F)
+
+combos_u <- lapply(1:7, function(x) combn(c("Kendall_Under_Edge","Tyra_Under_Edge","Gisele_Under_Edge",
+                                             "Kate_Under_Edge","Cindy_Under_Edge","Naomi_Under_Edge",
+                                             "Adriana_Under_Edge"), x, simplify = FALSE))
+combos_u <- unlist(combos_u, recursive = F)
+
+
+combos_result_u <- lapply(1:7, function(x) combn(c("Kendall_Under_Result","Tyra_Under_Result","Gisele_Under_Result",
+                                                    "Kate_Under_Result","Cindy_Under_Result","Naomi_Under_Result",
+                                                    "Adriana_Under_Result"), x, simplify = FALSE))
+combos_result_u <- unlist(combos_result_u, recursive = F)
+
+
+### Spread
+results_s <- list()
+for (i in seq_along(combos_s)) {
+    nms <- combos_s[[i]]
+    results_s[[paste0(nms, collapse = "_")]] <- results_book %>% 
+        filter(if_all(all_of(nms), ~ .> 0)) %>%
+        select(combos_s[[i]], combos_result_s[[i]], "Loc") %>%
+        mutate(Result = rowMeans(select(.,ends_with("Result")), na.rm = TRUE)) %>%
+        select("Loc","Result", ends_with("Edge")) %>%
+        arrange(desc(select(.,ends_with("Edge")))) %>%
+        mutate(Cume = round(cumsum(Result),1)) %>%
+        mutate(gameNum = row_number()) %>%
+        mutate(ROI = round((Cume /(gameNum*1.1))*100,2)) %>%
+        select("gameNum","Loc","Result","Cume","ROI",ends_with("Edge"))
+    
+}
+
+peaker_s <- list()
+for (j in seq_along(results_s)) {
+    for (i in 6:ncol(results_s[[j]])) {
+        x <- results_s[[j]][order(-results_s[[j]][,4]), ]
+        peaker_s[[j]] <- head(x,1)
+    }
+}
+
+peak_list_s <- map(peaker_s, as.data.table)
+spread_peak <- rbindlist(peak_list_s, fill = TRUE, idcol = F)
+# spread_peak <- spread_peak %>% select(1,4:12) %>% arrange(desc(Cume))
+
+spread_peak_filtered <- spread_peak %>%
+    select(1,4:12) %>% 
+    arrange(desc(Cume)) %>%
+    mutate(num_models = rowSums(is.na(.))) %>%
+    filter(num_models == 6) %>%
+    select(1:10) %>%
+    pivot_longer(cols = !gameNum:ROI, names_to = "Model", values_to = "Key") %>%
+    drop_na()
+
+
+### ML
+results_m <- list()
+for (i in seq_along(combos_m)) {
+    nms <- combos_m[[i]]
+    results_m[[paste0(nms, collapse = "_")]] <- results_book %>% 
+        filter(if_all(all_of(nms), ~ .> 0)) %>%
+        select(combos_m[[i]], combos_result_m[[i]], "Loc", "ML_Wager") %>%
+        mutate(Result = rowMeans(select(.,ends_with("Result")), na.rm = TRUE)) %>%
+        select("Loc","Result", ends_with("Edge"), "ML_Wager") %>%
+        arrange(desc(select(.,ends_with("Edge"), "ML_Wager"))) %>%
+        mutate(Cume = round(cumsum(Result),1)) %>%
+        mutate(gameNum = row_number()) %>%
+        mutate(ROI = round((Cume / cumsum(ML_Wager))*100,2)) %>%
+        select("gameNum","Loc","Result","Cume", "ROI", ends_with("Edge"))
+    
+}
+
+peaker_m <- list()
+for (j in seq_along(results_m)) {
+    for (i in 6:ncol(results_m[[j]])) {
+        x <- results_m[[j]][order(-results_m[[j]][,4]), ]
+        peaker_m[[j]] <- head(x,1)
+    }
+}
+
+peak_list_m <- map(peaker_m, as.data.table)
+ml_peak <- rbindlist(peak_list_m, fill = TRUE, idcol = F)
+
+ml_peak_filtered <- ml_peak %>%
+    select(1,4:12) %>% 
+    arrange(desc(Cume)) %>%
+    mutate(num_models = rowSums(is.na(.))) %>%
+    filter(num_models == 6) %>%
+    select(1:10) %>%
+    pivot_longer(cols = !gameNum:ROI, names_to = "Model", values_to = "Key") %>%
+    drop_na()
+
+
+
+
+### Over
+results_o <- list()
+for (i in seq_along(combos_o)) {
+    nms <- combos_o[[i]]
+    rslt <- combos_result_o[[i]]
+    results_o[[paste0(nms, collapse = "_")]] <- results_book %>% 
+        filter(if_all(all_of(nms), ~ .> 0)) %>%
+        select(combos_o[[i]], combos_result_o[[i]], "Loc") %>%
+        mutate(Result = rowMeans(select(.,ends_with("Result")), na.rm = TRUE)) %>%
+        select("Loc","Result", ends_with("Edge")) %>%
+        arrange(desc(select(.,ends_with("Edge")))) %>%
+        mutate(Cume = round(cumsum(Result),1)) %>%
+        mutate(gameNum = row_number()) %>%
+        mutate(ROI = round((Cume /(gameNum*1.1))*100,2)) %>%
+        select("gameNum","Loc","Result","Cume","ROI",ends_with("Edge"))
+    
+}
+
+peaker_o <- list()
+for (j in seq_along(results_o)) {
+    for (i in 6:ncol(results_o[[j]])) {
+        x <- results_o[[j]][order(-results_o[[j]][,4]), ]
+        peaker_o[[j]] <- head(x,1)
+    }
+}
+
+peak_list_o <- map(peaker_o, as.data.table)
+over_peak <- rbindlist(peak_list_o, fill = TRUE, idcol = F)
+
+over_peak_filtered <- over_peak %>%
+    select(1,4:12) %>% 
+    arrange(desc(Cume)) %>%
+    mutate(num_models = rowSums(is.na(.))) %>%
+    filter(num_models == 6) %>%
+    select(1:10) %>%
+    pivot_longer(cols = !gameNum:ROI, names_to = "Model", values_to = "Key") %>%
+    drop_na()
+
+
+
+### Under
+results_u <- list()
+for (i in seq_along(combos_u)) {
+    nms <- combos_u[[i]]
+    results_u[[paste0(nms, collapse = "_")]] <- results_book %>% 
+        filter(if_all(all_of(nms), ~ .> 0)) %>%
+        select(combos_u[[i]], combos_result_u[[i]], "Loc") %>%
+        mutate(Result = rowMeans(select(.,ends_with("Result")), na.rm = TRUE)) %>%
+        select("Loc","Result", ends_with("Edge")) %>%
+        arrange(desc(select(.,ends_with("Edge")))) %>%
+        mutate(Cume = round(cumsum(Result),1)) %>%
+        mutate(gameNum = row_number()) %>%
+        mutate(ROI = round((Cume /(gameNum*1.1))*100,2)) %>%
+        select("gameNum","Loc","Result","Cume","ROI",ends_with("Edge"))
+    
+}
+
+peaker_u <- list()
+for (j in seq_along(results_u)) {
+    for (i in 6:ncol(results_u[[j]])) {
+        x <- results_u[[j]][order(-results_u[[j]][,4]), ]
+        peaker_u[[j]] <- head(x,1)
+    }
+}
+
+peak_list_u <- map(peaker_u, as.data.table)
+under_peak <- rbindlist(peak_list_u, fill = TRUE, idcol = F)
+
+under_peak_filtered <- under_peak %>%
+    select(1,4:12) %>% 
+    arrange(desc(Cume)) %>%
+    mutate(num_models = rowSums(is.na(.))) %>%
+    filter(num_models == 6) %>%
+    select(1:10) %>%
+    pivot_longer(cols = !gameNum:ROI, names_to = "Model", values_to = "Key") %>%
+    drop_na()
+
+
+
+

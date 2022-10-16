@@ -16,13 +16,14 @@ library(xgboost)
 library(mctest)
 library(corrplot)
 library(corrgram)
+library(ranger)
 # library(mlr)
-library(ROCR)
+# library(ROCR)
 
 rm(list=ls())
 
 
-# nba<- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1422.xlsx")
+# nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1422.xlsx")
 nba <- read_xlsx("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb1422_adj.xlsx")
 
 nba <- nba %>% select(-1)
@@ -302,7 +303,7 @@ calc_class_err(actual = test$Win,
                predicted = knn(train = train[,-1],
                                test  = test[,-1],
                                cl    = train$Win,
-                               k     = 104))
+                               k     = 91))
 
 
 
@@ -313,6 +314,17 @@ calc_class_err(actual = test$Win,
 train$Win <- as.factor(train$Win)
 test$Win <- as.factor(test$Win)
 
+### Random Forest ###
+library(randomForest)
+mtry <- tuneRF(train[-1],train$Win, ntreeTry=500,
+               stepFactor=1.5,improve=0.01, trace=TRUE, plot=TRUE)
+best.m <- mtry[mtry[, 2] == min(mtry[, 2]), 1]
+print(mtry)
+print(best.m)
+
+
+
+
 # ensemble classification style 
 calc_acc = function(actual, predicted) {
     mean(actual == predicted)
@@ -320,8 +332,8 @@ calc_acc = function(actual, predicted) {
 
 # classification
 # random forest
-oob = trainControl(method = "oob")
-cv_10 = trainControl(method="repeatedcv", number=10, repeats=3, search="grid")
+# oob = trainControl(method = "oob")
+cv_5 = trainControl(method="cv", number=5, search="grid")
 
 dim(train)
 
@@ -330,7 +342,7 @@ rf_grid =  expand.grid(mtry = 1:71)
 set.seed(214)
 nba_rf_tune = train(Win ~ ., data = train,
                     method = "rf", #ranger
-                    trControl = oob,
+                    trControl = cv_5,
                     verbose = T,
                     tuneGrid = rf_grid)
 nba_rf_tune
@@ -410,7 +422,7 @@ table(predicted = nba_bag_tst_pred, actual = test$Win)
 (bag_tst_acc = calc_acc(predicted = nba_bag_tst_pred, actual = test$Win))
 
 # random forest
-nba_forest = randomForest(Win ~ ., data = train, mtry = 1, importance = TRUE, ntrees = 500)
+nba_forest = randomForest(Win ~ ., data = train, mtry = 12, importance = TRUE, ntrees = 500)
 nba_forest
 
 nba_forest_tst_perd = predict(nba_forest, newdata = test)
@@ -746,7 +758,7 @@ confusionMatrix(validation$pred_win_factor_tuned, validation$Win)
 misClassError(as.numeric(validation$Win), as.numeric(validation$pred_win_factor_tuned))
 
 # Test
-test$pred_win_base <- predict(xgb_base, dtest)
+test$pred_win_base <- predict(xgb_tuned, dtest)
 test$pred_win_base_factor <- ifelse(test$pred_win_base > 0.5, 1, 0)
 misClassError(test$Win, test$pred_win_base_factor)
 
@@ -754,18 +766,29 @@ mat <- xgb.importance(model = xgb_tuned)
 xgb.plot.importance(importance_matrix = mat[1:20], rel_to_first = T)
 
 
+
+
+
+
+
+
+
+
 ########### Totals ------------------------------------------------
-# regression nba stats
+
+nba_reg <- nba %>%
+    select(5,9:78)
+
 
 ## no correlation - eFG
 nba_reg <- nba %>%
-    select(6,
+    select(5,
            14,15,16,18,19,21,23,30,34,35,37,39,43,
            49,50,51,53,54,56,58,65,69,70,72,74,78)
 
 ## no correlation - ts
 nba_reg <- nba %>%
-    select(6,
+    select(5,
            14,15,16,18,19,21,24,30,34,35,37,40,43,
            49,50,51,53,54,56,59,65,69,70,72,75,78)
 
@@ -785,12 +808,23 @@ summary(train)
 
 
 
+# Correlation
+cor_mx <- cor(nba_reg)
+# corrplot(cor_mx, method = "color", title = "Correlation Matrix",
+#          mar=c(0,0,1,0))
+
+cor_as <- cor(nba_reg, nba_reg$AS)
+cor_as <- as.matrix(cor_as[order(cor_as[,1], decreasing = T),]) # ordered by highest correlation
+cor_as
+
+
+
 
 ################
 #### Linear #### - regression
 ################
 
-lin_mod <- lm(HS ~., data = train)
+lin_mod <- lm(AS ~., data = train)
 summary(lin_mod)
 
 
@@ -806,25 +840,25 @@ eval_metrics <- function(model, df, predictions, target) {
 }
 # Step 2 - predicting and evaluating the model on train data
 predictions = predict(lin_mod, newdata = train)
-eval_metrics(lin_mod, train, predictions, target = 'HS')
+eval_metrics(lin_mod, train, predictions, target = 'AS')
 
 # Step 3 - predicting and evaluating the model on test data
 predictions = predict(lin_mod, newdata = test)
-eval_metrics(lin_mod, test, predictions, target = 'HS')
+eval_metrics(lin_mod, test, predictions, target = 'AS')
 
 
 
 ### Ridge & Lasso models
-dummies <- dummyVars(HS ~ ., data = nba_reg)
+dummies <- dummyVars(AS ~ ., data = nba_reg)
 train_dummies = predict(dummies, newdata = train)
 test_dummies = predict(dummies, newdata = test)
 print(dim(train_dummies)); print(dim(test_dummies))
 
 x = as.matrix(train_dummies)
-y_train = train$HS
+y_train = train$AS
 
 x_test = as.matrix(test_dummies)
-y_test = test$HS
+y_test = test$AS
 
 # Compute R^2 from true and predicted values
 eval_results <- function(true, predicted, df) {
@@ -911,7 +945,7 @@ train_cont <- trainControl(method = "repeatedcv",
                            verboseIter = TRUE)
 
 # Train the model
-elastic_reg <- train(HS ~ .,
+elastic_reg <- train(AS ~ .,
                      data = train,
                      method = "glmnet",
                      preProcess = c("center", "scale"),
@@ -949,8 +983,8 @@ rmse = function(actual, predicted) {
 make_knn_pred = function(k = 1, training, predicting) {
     pred = FNN::knn.reg(as.data.frame(training[,-1]), 
                         as.data.frame(predicting[,-1]), 
-                        y = as.numeric(train$HS), k = k)$pred
-    act  = predicting$HS
+                        y = as.numeric(train$AS), k = k)$pred
+    act  = predicting$AS
     rmse(predicted = pred, actual = act)
 }
 
@@ -993,7 +1027,7 @@ knitr::kable(knn_results, escape = FALSE, booktabs = TRUE)
 
 knn_model <- FNN::knn.reg(train = as.data.frame(train[,-1]), 
                           test = as.data.frame(test[,-1]), 
-                          y = as.numeric(train$HS), 
+                          y = as.numeric(train$AS), 
                           k = best_k)
 pred_y  = knn_model$pred
 
@@ -1019,22 +1053,22 @@ calc_rmse = function(actual, predicted) {
 
 # regression
 # random forest
-oob = trainControl(method = "oob")
+# oob = trainControl(method = "oob")
 cv_5 = trainControl(method = "cv", number = 5)
 
 dim(train)
 
-rf_grid =  expand.grid(mtry = 1:26)
+rf_grid =  expand.grid(mtry = 1:71)
 
 set.seed(214)
-nba_rf_tune = train(HS ~ ., data = train,
+nba_rf_tune = train(AS ~ ., data = train,
                     method = "rf", #ranger
                     trControl = oob,
                     verbose = T,
                     tuneGrid = rf_grid)
 nba_rf_tune
 
-calc_rmse(predict(nba_rf_tune, test), test$HS)
+calc_rmse(predict(nba_rf_tune, test), test$AS)
 
 nba_rf_tune$bestTune
 
@@ -1044,7 +1078,7 @@ gbm_grid =  expand.grid(interaction.depth = 1:5,
                         shrinkage = c(0.001, 0.01, 0.1),
                         n.minobsinnode = 10)
 
-nba_gbm_tune = train(HS ~ ., data = train,
+nba_gbm_tune = train(AS ~ ., data = train,
                      method = "gbm",
                      trControl = cv_5,
                      verbose = FALSE,
@@ -1052,7 +1086,7 @@ nba_gbm_tune = train(HS ~ ., data = train,
 
 plot(nba_gbm_tune)
 
-calc_rmse(predict(nba_gbm_tune, test), test$HS)
+calc_rmse(predict(nba_gbm_tune, test), test$AS)
 
 nba_gbm_tune$bestTune
 
@@ -1075,52 +1109,52 @@ library(MASS)
 
 
 # tree
-nba_tree = rpart(HS ~ ., data = train)
+nba_tree = rpart(AS ~ ., data = train)
 
 nba_tree_tst_pred = predict(nba_tree, newdata = test)
-plot(nba_tree_tst_pred, test$HS, 
+plot(nba_tree_tst_pred, test$AS, 
      xlab = "Predicted", ylab = "Actual", 
      main = "Predicted vs Actual: Single Tree, Test Data",
      col = "dodgerblue", pch = 20)
 grid()
 abline(0, 1, col = "darkorange", lwd = 2)
 
-(tree_tst_rmse = calc_rmse(nba_tree_tst_pred, test$HS))
+(tree_tst_rmse = calc_rmse(nba_tree_tst_pred, test$AS))
 
 # linear
-nba_lm = lm(HS ~ ., data = train)
+nba_lm = lm(AS ~ ., data = train)
 
 nba_lm_tst_pred = predict(nba_lm, newdata = test)
 
-plot(nba_lm_tst_pred, test$HS,
+plot(nba_lm_tst_pred, test$AS,
      xlab = "Predicted", ylab = "Actual",
      main = "Predicted vs Actual: Linear Model, Test Data",
      col = "dodgerblue", pch = 20)
 grid()
 abline(0, 1, col = "darkorange", lwd = 2)
 
-(lm_tst_rmse = calc_rmse(nba_lm_tst_pred, test$HS))
+(lm_tst_rmse = calc_rmse(nba_lm_tst_pred, test$AS))
 
 # bagging
-nba_bag = randomForest(HS ~ ., data = train, mtry = 26, 
+nba_bag = randomForest(AS ~ ., data = train, mtry = 26, 
                        importance = TRUE, ntrees = 500)
 nba_bag
 
 nba_bag_tst_pred = predict(nba_bag, newdata = test)
-plot(nba_bag_tst_pred,test$HS,
+plot(nba_bag_tst_pred,test$AS,
      xlab = "Predicted", ylab = "Actual",
      main = "Predicted vs Actual: Bagged Model, Test Data",
      col = "dodgerblue", pch = 20)
 grid()
 abline(0, 1, col = "darkorange", lwd = 2)
 
-(bag_tst_rmse = calc_rmse(nba_bag_tst_pred, test$HS))
+(bag_tst_rmse = calc_rmse(nba_bag_tst_pred, test$AS))
 
 plot(nba_bag, col = "dodgerblue", lwd = 2, main = "Bagged Trees: Error vs Number of Trees")
 grid()
 
 # random forest
-nba_forest = randomForest(HS ~ ., data = train, mtry = 6, 
+nba_forest = randomForest(AS ~ ., data = train, mtry = 6, 
                           importance = TRUE, ntrees = 500)
 nba_forest
 
@@ -1129,21 +1163,21 @@ importance(nba_forest, type = 1)
 varImpPlot(nba_forest, type = 1)
 
 nba_forest_tst_pred = predict(nba_forest, newdata = test)
-plot(nba_forest_tst_pred, test$HS,
+plot(nba_forest_tst_pred, test$AS,
      xlab = "Predicted", ylab = "Actual",
      main = "Predicted vs Actual: Random Forest, Test Data",
      col = "dodgerblue", pch = 20)
 grid()
 abline(0, 1, col = "darkorange", lwd = 2)
 
-(forest_tst_rmse = calc_rmse(nba_forest_tst_pred, test$HS))
+(forest_tst_rmse = calc_rmse(nba_forest_tst_pred, test$AS))
 
 nba_forest_trn_pred = predict(nba_forest, newdata = train)
-forest_trn_rmse = calc_rmse(nba_forest_trn_pred, train$HS)
-forest_oob_rmse = calc_rmse(nba_forest$predicted, train$HS)
+forest_trn_rmse = calc_rmse(nba_forest_trn_pred, train$AS)
+forest_oob_rmse = calc_rmse(nba_forest$predicted, train$AS)
 
 # boosting
-nba_boost = gbm(HS ~ ., data = train, distribution = "gaussian", 
+nba_boost = gbm(AS ~ ., data = train, distribution = "gaussian", 
                 n.trees = 1500, interaction.depth = 3, shrinkage = 0.01)
 nba_boost
 
@@ -1159,9 +1193,9 @@ plot(nba_boost, i = "eFG_home", col = "dodgerblue", lwd = 2)
 plot(nba_boost, i = "eFG_away", col = "dodgerblue", lwd = 2)
 
 nba_boost_tst_pred = predict(nba_boost, newdata = test, n.trees = 1500)
-(boost_tst_rmse = calc_rmse(nba_boost_tst_pred, test$HS))
+(boost_tst_rmse = calc_rmse(nba_boost_tst_pred, test$AS))
 
-plot(nba_boost_tst_pred, test$HS,
+plot(nba_boost_tst_pred, test$AS,
      xlab = "Predicted", ylab = "Actual", 
      main = "Predicted vs Actual: Boosted Model, Test Data",
      col = "dodgerblue", pch = 20)
@@ -1181,13 +1215,13 @@ abline(0, 1, col = "darkorange", lwd = 2)
 #############
 
 # Setup for cross validation
-ctrl <- trainControl(method = "repeatedcv",
-                     number = 10,
-                     repeats = 3)         
+ctrl <- trainControl(method = "cv",
+                     number = 5)         
 
-# grid <- expand.grid(C = c(0,0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2,5))
-grid <- expand.grid(C = c(10, 5))
-svm.tune <- train(HS ~ .,
+grid <- expand.grid(C = c(0, 0.01,  0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15))
+# grid <- expand.grid(C = c(0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2,5))
+# grid <- expand.grid(C = c(10, 5))
+svm.tune <- train(AS ~ .,
                   data = train,
                   method = "svmLinear",
                   tuneLength = 10,      
@@ -1199,16 +1233,38 @@ plot(svm.tune)
 
 
 
-modelsvm = svm(HS ~., train, cost=10, kernel = "linear")
-predsvm = predict(modelsvm, test)
-RMSEsvm = RMSE(predsvm, test$HS)
+predsvm = predict(svm.tune, test)
+RMSEsvm = RMSE(predsvm, test$AS)
+RMSEsvm
+
+
+### Radial Model
+ctrl <- trainControl(method="cv",
+                     number = 5)
+
+
+grid <- expand.grid(sigma = c(.01, .015, 0.2),
+                    C = c(0.75, 0.9, 1, 1.1, 1.25))
+
+svm.tune <- train(AS ~ .,
+                  data = train,
+                  method = "svmRadial",
+                  metric="RMSE",
+                  tuneGrid = grid,
+                  trControl = ctrl)
+
+
+predsvm = predict(svm.tune, test)
+RMSEsvm = RMSE(predsvm, test$AS)
+RMSEsvm
+
 
 
 ############
 #### NN #### - regression
 ############
 
-nn_model <- neuralnet(HS ~., data = train, linear.output = T, rep = 1, threshold = .8, stepmax = 1e7)
+nn_model <- neuralnet(AS ~., data = train, linear.output = T, rep = 1, threshold = .8, stepmax = 1e7)
 plot(nn_model)
 
 nn_margin <- compute(nn_model, test)
@@ -1300,8 +1356,8 @@ plot(cal, legend=T)
 
 
 #### Old Spread Code ---------------------------------
-nba_reg <- nba %>%
-    select(7,9:78)
+# nba_reg <- nba %>%
+#     select(7,9:78)
 
 # nba_reg <- nba %>%
 #     select(7,79:48)
@@ -1765,9 +1821,8 @@ abline(0, 1, col = "darkorange", lwd = 2)
 #############
 
 # Setup for cross validation
-ctrl <- trainControl(method = "repeatedcv",
-                     number = 10,
-                     repeats = 3)         
+ctrl <- trainControl(method = "cv",
+                     number = 5)         
 
 # grid <- expand.grid(C = c(0,0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2,5))
 grid <- expand.grid(C = c(10, 5))
@@ -1783,11 +1838,32 @@ plot(svm.tune)
 
 
 
-modelsvm = svm(Margin ~., train, cost=5, kernel = "linear")
+# modelsvm = svm(Margin ~., train, cost=5, kernel = "linear")
 predsvm = predict(modelsvm, test)
 RMSEsvm = RMSE(predsvm, test$Margin)
 RMSEsvm
 
+
+### Radial Model
+ctrl <- trainControl(method="cv",
+                     number = 5)
+
+
+grid <- expand.grid(sigma = c(.01, .015, 0.2),
+                    C = c(0.75, 0.9, 1, 1.1, 1.25))
+
+svm.tune <- train(AS ~ .,
+                  data = train,
+                  method = "svmRadial",
+                  metric="RMSE",
+                  tuneGrid = grid,
+                  trControl=ctrl)
+
+# Predict Target Label
+valX <- test[-1]
+pred <- predict(svm.tune, valX, type="prob")[2]
+
+misClassError(test$Win, pred)
 
 
 ############

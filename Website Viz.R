@@ -1,11 +1,18 @@
-if (!require("pacman")) install.packages("pacman"); library(pacman)
-pacman::p_load(tidyverse, readxl, lubridate, openxlsx, shiny,
-               nbastatR, ggimage, ggrepel, data.table, gt, janitor, zoo, gt)
+### Shiny App Website ----
+
+library(shiny)
+library(ggimage)
+library(ggrepel)
+library(data.table)
+library(gt)
+library(gtExtras)
+library(janitor)
+library(zoo)
 # devtools::install_github("beanumber/teamcolors", force=TRUE)
 # library(teamcolors)
 # rm(list=ls())
 
-rosters <- nbastatR::seasons_rosters(seasons = 2022)
+rosters <- nbastatR::seasons_rosters(seasons = 2023)
 
 sched <- nbastatR::current_schedule()
 
@@ -37,142 +44,184 @@ team_dict <- team_dict %>%
 
 DBI::dbDisconnect(NBAdb)
 
-td <- as_date("2022-05-15")
-
-slate <- sched %>%
-    filter(dateGame == td) %>%
-    mutate(gameTime = hms::as_hms(datetimeGame - 18000)) %>%
-    select(4,29,24,2,34)
-
-colnames(slate) <- c("idGame","Away","Home","Date","Game Time")
+# td <- as_date("2022-10-18")
+# 
+# slate <- sched %>%
+#     filter(dateGame == td) %>%
+#     mutate(gameTime = hms::as_hms(datetimeGame - 18000)) %>%
+#     select(4,29,24,2,34)
+# 
+# colnames(slate) <- c("idGame","Away","Home","Date","Game Time")
 
 slate <- slate %>%
     mutate(across(where(is.character), str_replace_all, 
                   pattern = "Los Angeles Clippers", replacement = "LA Clippers"))
 
 slate_df <- slate %>%
-    mutate(gm = paste0(Away," @ ",Home)) %>%
+    mutate(gm = paste0(away, " @ ", home)) %>%
     select(6,2,3,5)
 
-colnames(slate_df) <- c("GM","Away","Home","GM_Time")
-
 slate_df <- slate_df %>%
-    left_join(team_dict[c(2,9,10)], by = c("Home" = "nameTeam"))
+    left_join(team_dict[c(2,9,10)], by = c("home" = "nameTeam"))
+
+colnames(slate_df) <- c("Game", "Away", "Home", "Game Time", "Arena", "Location")
 
 
-### Model Performance ------------------------------------------
-# fixed keys
-df <- read_xlsx(paste0("/Users/Jesse/Documents/MyStuff/NBA Betting/Backtest 2022/Backtest Output/",
-                       "2021 Tyra/Backtest_Results_2021_Tyra_eFG.xlsx"))
-df <- df %>% 
-    filter(Tyra_ML_Edge >= 0.1) %>%
-    # mutate(DayMonth = format(as.Date(Date), "%d-%m")) %>%
-    mutate(DayMonth = lubridate::month(Date, label = T)) %>%
-    group_by(DayMonth) %>%
-    summarise(day_total_2021 = sum(Tyra_ML_Result))
-    # mutate(cume_2021 = cumsum(day_total_2021))
+### Shiny App Inputs ----
+
+### Filter lists ----
+gm_list <- unique(slate_df$Game)
+metric_list <- c("All", "Spread", "Moneyline", "Total", "Team Total")
+tm_list <- unique(season_final$teamName)
+loc_list <- c("Season", "Away", "Home")
+
+### Standings----
+standings_df <- standings %>%
+    select(1:4,6:8,10:12,14:16)
+
+### Players ----
+players_df <- rosters[c(3,4,5)] %>%
+    left_join(team_dict[c(2:3)], by = "slugTeam") %>%
+    left_join(., players_df_basic[c(7,10:16,19,25:42)], by = c("idPlayer"="idPlayerNBA")) %>%
+    left_join(., players_df_adv[c(13,20:39)], by = c("idPlayer"="idPlayerNBA")) %>%
+    select(4,3,5,6,7,13,30,
+           14,15,8,16,17,9,20,21,12,22,23,24,25,28,26,27,29,
+           11,32,42,31,47,48,49,50,43,44,45,46) %>%
+    arrange(nameTeam,desc(ptsPerGame))
+
+colnames(players_df) <- c('TEAM','PLAYER','POS','GP','GS','MIN','PTS','FGM','FGA','FG','3PM','3PA','3FG',
+                          'FTM','FTA','FT','ORB','DRB','TRB','AST','TOV','STL','BLK','PF',
+                          'EFG','TS','USG','PER','OBPM','DBPM','BPM','VORP','OWS','DWS','WS','WS48')
+
+### Models ----
+models_df_raw <- all_models %>%
+    select(1:6,8,9,7,10) %>%
+    mutate(gm = paste0(all_models$away, " @ ", all_models$home)) %>%
+    rename_with(~ paste0('c', ceiling(seq_along(.x) / 2), '_', 1:2)) %>%
+    pivot_longer(cols = c(1:9), names_to = c(".value", NA), names_sep = '_') %>%
+    mutate(across(c5, ~ na.locf(.x))) %>%
+    select(3:7,2,1)
+
+colnames(models_df_raw) <- c("team", "margin", "win", "team_score", "total", "game", "model")
+
+models_df <- models_df_raw %>%
+    pivot_wider(names_from = model, values_from = c(margin, win, team_score, total))
+
+models_df_marg <- models_df  %>% mutate(metric = "Spread") %>% select(2,39,1,3:11)
+colnames(models_df_marg) <- c("Game","Metric","Team",
+                              "Kendall", "Tyra", "Gisele", "Chrissy", 
+                              "Kate", "Cindy","Naomi", "Heidi","Adriana")
+models_df_win <- models_df  %>% mutate(metric = "Moneyline") %>% select(2,39,1,12:20)
+colnames(models_df_win) <- c("Game","Metric","Team",
+                             "Kendall", "Tyra", "Gisele", "Chrissy", 
+                             "Kate", "Cindy","Naomi", "Heidi","Adriana")
+models_df_gm_total <- models_df  %>% mutate(metric = "Total") %>% select(2,39,1,30:38)
+colnames(models_df_gm_total) <- c("Game","Metric","Team",
+                                  "Kendall", "Tyra", "Gisele", "Chrissy", 
+                                  "Kate", "Cindy","Naomi", "Heidi","Adriana")
+models_df_tm_total <- models_df  %>% mutate(metric = "Team Total") %>% select(2,39,1,21:29)
+colnames(models_df_tm_total) <- c("Game","Metric","Team",
+                                  "Kendall", "Tyra", "Gisele", "Chrissy", 
+                                  "Kate", "Cindy","Naomi", "Heidi","Adriana")
+
+models_df_fmt <- rbind(models_df_marg, models_df_win, models_df_gm_total, models_df_tm_total)
+
+models_df_fmt <- models_df_fmt %>%
+    mutate(Team = case_when(Metric == "Total" ~ Game,
+                            TRUE ~ Team)) %>%
+    distinct()
+
+### Edges ----
+models_edges_df_raw <- models_df_raw %>% 
+    left_join(plays[,5:8], by = "team") %>%
+    mutate(margin = margin - spread) %>%
+    mutate(win = win - (if_else(ml<0,((ml*-1)/((ml*-1)+100)),(100/(ml+100))))) %>%
+    mutate(total = total.x - total.y) %>%
+    select(1:3,11,6,7)
+
+models_edges_df_raw <- models_edges_df_raw %>%
+    mutate(margin = round(margin, 1)) %>%
+    mutate(win = round(win, 3)) %>%
+    mutate(total = round(total, 1))
+
+colnames(models_edges_df_raw) <- c("team", "margin", "win", "total", "game", "model")
+
+models_edges_df <- models_edges_df_raw %>%
+    pivot_wider(names_from = model, values_from = c(margin, win, total))
+
+models_edges_df_marg <- models_edges_df  %>% mutate(metric = "Spread") %>% select(2,30,1,3:11)
+colnames(models_edges_df_marg) <- c("Game","Metric","Team",
+                              "Kendall", "Tyra", "Gisele", "Chrissy", 
+                              "Kate", "Cindy","Naomi", "Heidi","Adriana")
+models_edges_df_win <- models_edges_df  %>% mutate(metric = "Moneyline") %>% select(2,30,1,12:20)
+colnames(models_edges_df_win) <- c("Game","Metric","Team",
+                                   "Kendall", "Tyra", "Gisele", "Chrissy", 
+                                   "Kate", "Cindy","Naomi", "Heidi","Adriana")
+models_edges_df_gm_total <- models_edges_df  %>% mutate(metric = "Total") %>% select(2,30,1,21:29)
+colnames(models_edges_df_gm_total) <- c("Game","Metric","Team",
+                                        "Kendall", "Tyra", "Gisele", "Chrissy", 
+                                        "Kate", "Cindy","Naomi", "Heidi","Adriana")
+
+models_edges_df_fmt <- rbind(models_edges_df_marg, models_edges_df_win, models_edges_df_gm_total)
+
+models_edges_df_fmt <- models_edges_df_fmt %>%
+    mutate(Team = case_when(Metric == "Total" ~ Game,
+                            TRUE ~ Team)) %>%
+    distinct()
     
+### Plays - All ----
+bets_df <- bets %>%
+    mutate(Game = if_else(loc == "H", paste0(opp_team, " @ ", team), paste0(team, " @ ", opp_team))) %>%
+    left_join(slate[,c(1,5)], by = "game_id")  %>%
+    mutate(team = if_else(bet_type %in% c("Over", "Under"), "Game Total", team)) %>%
+    select(9,10,5,6,7,8)
+
+bets_df_viz <- bets_df %>%
+    mutate(line = case_when(bet_type %in% c("Spread","ML") & line > 0 ~ paste0("+", line),
+                              TRUE ~ as.character(line)))
+
+### Plays - Official ----
+bets_official_df <- official_plays %>%
+    mutate(Game = if_else(loc == "H", paste0(opp_team, " @ ", team), paste0(team, " @ ", opp_team))) %>%
+    left_join(slate[,c(1,5)], by = "game_id")  %>%
+    mutate(team = if_else(bet_type %in% c("Over", "Under"), "Game Total", team)) %>%
+    select(9,10,5,6,7,8)
+
+bets_official_df_viz <- bets_official_df %>%
+    mutate(line = case_when(bet_type %in% c("Spread","ML") & line > 0 ~ paste0("+", line),
+                              TRUE ~ as.character(line)))
 
 
-df2 <- read_xlsx(paste0("/Users/Jesse/Documents/MyStuff/NBA Betting/Backtest 2022/Backtest Output/",
-                       "Tyra/Backtest_Results_2022_Tyra_eFG.xlsx"))
-df2 <- df2 %>% 
-    filter(Tyra_ML_Edge >= 0.2) %>%
-    # mutate(DayMonth = format(as.Date(Date), "%d-%m")) %>%
-    mutate(DayMonth = lubridate::month(Date, label = T)) %>%
-    group_by(DayMonth) %>%
-    summarise(day_total_2022 = sum(Tyra_ML_Result))
-    # mutate(cume_2022 = cumsum(day_total_2022))
-
-# df <- rbind(df, df2)
-df <- df %>% full_join(df2)
-df$DayMonth <- factor(df$DayMonth, levels = c('Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May'))
-
-df <- df %>%
-    mutate(cume_2021 = cumsum(day_total_2021)) %>%
-    arrange(DayMonth) %>%
-    mutate(cume_2022 = cumsum(day_total_2022))
+### Var Imp ----
+score_imp_bind <- score_imp %>%
+    mutate(var = gsub('_.*','', var)) %>%
+    group_by(var) %>%
+    summarise(imp = round(max(imp),1)) %>%
+    arrange(desc(imp)) %>%
+    mutate(imp = as.character(imp)) %>%
+    mutate(index = 1:nrow(.))
 
 
-df %>%
-    ggplot(aes(DayMonth)) +
-    geom_line(aes(y=cume_2021, color="2021"), size=1.24, group=1) +
-    geom_line(aes(y=cume_2022, color="2022"), size=1.24, group=1) +
-    scale_color_manual(name = "", values = c("2021" = "#9590FF", "2022" = "darkblue")) +
-    labs(x = "Month", y = "Units", title = "Least Squares Model Performance", subtitle = "Moneyline") +
-    scale_x_discrete() + 
-    theme_bw()
+win_imp_bind <- win_imp %>%
+    mutate(var = gsub('_.*','', var)) %>%
+    group_by(var) %>%
+    summarise(imp = round(max(imp),1)) %>%
+    arrange(desc(imp)) %>%
+    mutate(imp = as.character(imp)) %>%
+    mutate(index = 1:nrow(.))
 
 
+imp_viz <- full_join(score_imp_bind, win_imp_bind, by = "index") %>%
+    select(1,2,4,5) %>%
+    rename(score_var = var.x,
+           imp_score = imp.x,
+           win_var = var.y,
+           imp_win = imp.y)
 
-# dynamic keys
-df <- read_xlsx(paste0("/Users/Jesse/Documents/MyStuff/NBA Betting/Backtest 2022/Backtest Output/",
-                        "Backtest_Results_2022_Tyra_All_Adj.xlsx"))
-df$Date <- as_date(df$Date)
-
-t <- seq(0.1,25,0.1)
-# t <- seq(0.01,1,0.01)
-b <- 1
-h <- length(t)
-bst_tot <- 0
-# bst_flt <- 10
-
-for (b in b:h) {
-    
-    flt <- as.numeric(t[b])
-    
-    temp <- as.numeric(df %>% filter(Tyra_Over_Edge >= flt) %>% 
-                           summarise(day_total = sum(Tyra_Over_Result)))
-    
-    if (temp > bst_tot) {
-        bst_tot <- temp
-        bst_flt <- flt
-    }
-}
-
-df %>%
-    filter(Tyra_Over_Edge >= bst_flt) %>%
-    group_by(Date) %>%
-    summarise(day_total = sum(Tyra_Over_Result)) %>%
-    mutate(cume = cumsum(day_total)) %>%
-    ggplot(aes(Date)) +
-    geom_line(aes(y=cume, color="All Plays"), size=1) +
-    scale_color_manual(name = "", values = c("All Plays" = "darkblue")) +
-    labs(x = "Date", y = "Units", title = "2022 Performance", subtitle = "Model") +
-    theme_bw()
-
-print(bst_tot)
-print(bst_flt)
-print(df %>% filter(Tyra_Over_Edge >= bst_flt) %>% nrow())
+imp_viz[is.na(imp_viz)] <- ""
 
 
-
-
-
-
-### players - old verison
-# players_df <- dataGameLogsPlayer %>%
-#     select(16,42,17:36) %>%
-#     group_by(nameTeam,namePlayer) %>%
-#     summarise(across(numberGamePlayerSeason, max), 
-#               across(c(minutes:fga, fg3m:fg3a, ftm:fta, oreb:pts), ~round(mean(.),1)),
-#               across(plusminus, sum)) %>%
-#     mutate(pctFG = round(fgm/fga,3),
-#            pctFG3 = round(fg3m/fg3a,3),
-#            pctFT = round(ftm/fta,3)) %>%
-#     mutate(across(everything(), ~replace(., is.nan(.), 0))) %>%
-#     select(1:6,20,7:8,21,9:10,22,11:19)
-
-
-
-
-
-
-
-
-#########################################################################
-####################### Working Shiny App ###############################
-#########################################################################
+### Functions ----
 
 # summary function
 summary_tbl <- function(a, h, b, l) {
@@ -206,7 +255,7 @@ summary_tbl <- function(a, h, b, l) {
     
     standings_df_viz %>%
         gt() %>%
-        opt_all_caps()  %>%
+        # opt_all_caps() %>%
         opt_table_font(
             font = list(
                 google_font("Chivo"),
@@ -261,11 +310,14 @@ summary_tbl <- function(a, h, b, l) {
             row_group.padding = px(3),
             row_group.background.color = "#e3e2e1",
             row_group.font.size = 13,
-            source_notes.font.size = 10
+            source_notes.font.size = 8
         ) %>%
         cols_align(
             align = "center",
             columns = everything()
+        ) %>%
+        tab_source_note(
+            source_note = md("@MambaMetrics | Data: nbastatR")
         )
     
 }
@@ -348,7 +400,8 @@ player_tbl <- function(a, h) {
             column_labels.border.bottom.width = px(3),
             column_labels.border.bottom.color = "transparent",
             row.striping.background_color = "#f9f9fb",
-            data_row.padding = px(3)
+            data_row.padding = px(3),
+            source_notes.font.size = 8
         ) %>%
         fmt_percent(
             columns = c(10,13,16,25,26,27),
@@ -378,7 +431,137 @@ player_tbl <- function(a, h) {
             )
         ) %>%
         tab_source_note(
-            source_note = md("@MambaMetrics")
+            source_note = md("@MambaMetrics | Data: nbastatR")
+        )
+    
+}
+
+# team function
+team_tbl <- function(l) {
+    
+    season_final <- season_final %>%
+        left_join(standings[,c(1,4)], by = c("teamName" = "Team")) %>%
+        mutate(loc = "Season")
+    season_final <- as.data.frame(season_final)
+    
+    away_final <- away_final %>%
+        left_join(standings[,c(1,8)], by = c("teamName" = "Team")) %>%
+        mutate(loc = "Away")
+    away_final <- as.data.frame(away_final)
+    
+    home_final <- home_final %>%
+        left_join(standings[,c(1,12)], by = c("teamName" = "Team")) %>%
+        mutate(loc = "Home")
+    home_final <- as.data.frame(home_final)
+    
+    teams_df <- bind_rows(season_final,away_final,home_final)
+    
+    teams_df_viz <- teams_df %>% 
+        filter(loc == as.character(l)) %>%
+        select(-loc) %>%
+        select(where(~!all(is.na(.)))) %>%
+        select(1,37,34:36,2:33) %>%
+        rename(Record = ends_with("Record"))
+
+    teams_df_viz %>%
+        gt() %>%
+        tab_spanner(
+            label = "OFFENSE",
+            columns = 6:21
+        ) %>%
+        tab_spanner(
+            label = "DEFENSE",
+            columns = 22:37
+        ) %>%
+        tab_spanner(
+            label = "BLANK",
+            columns = 1:5
+        ) %>%
+        tab_style(
+            style = list(
+                cell_fill(color = "#e4e8ed"),
+                cell_text(color = "#878e94"),
+                cell_borders(sides = "left", color = "white", weight = px(3))
+            ),
+            locations = list(
+                cells_column_spanners(
+                    spanners = c("OFFENSE", "DEFENSE")
+                )
+            )
+        ) %>%
+        tab_style(
+            style = list(
+                cell_fill(color = "transparent"),
+                cell_text(color = "transparent")
+            ),
+            locations = list(
+                cells_column_spanners(
+                    spanners = c("BLANK")
+                )
+            )
+        ) %>%
+        tab_style(
+            style = list(
+                cell_text(color = "#3a3d42", weight = "bold")
+            ),
+            locations = cells_body(
+                columns = 1:2
+            )
+        ) %>%
+        opt_row_striping() %>%
+        tab_options(
+            table.font.size = 12,
+            row_group.font.size = 13,
+            column_labels.background.color = "#585d63",
+            table_body.hlines.color = "transparent",
+            table.border.top.width = px(3),
+            table.border.top.color = "transparent",
+            table.border.bottom.color = "transparent",
+            table.border.bottom.width = px(3),
+            column_labels.border.top.width = px(3),
+            column_labels.border.top.color = "transparent",
+            column_labels.border.bottom.width = px(3),
+            column_labels.border.bottom.color = "transparent",
+            row.striping.background_color = "#f9f9fb",
+            data_row.padding = px(3),
+            source_notes.font.size = 8
+        ) %>%
+        fmt_percent(
+            columns = c(6:37),
+            decimals = 1
+        ) %>%
+        fmt_number(
+            columns = c(3:5),
+            decimals = 1
+        ) %>%
+        cols_width(
+            teamName ~ px(150),
+            everything() ~ px(50)
+        ) %>%
+        cols_align(
+            align = "center",
+            columns = 2:37
+        ) %>%
+        cols_label(
+            teamName = "Team"
+        ) %>%
+        tab_style(
+            style = cell_borders(
+                sides = "bottom", color = "#585d63", weight = px(2)
+            ),
+            locations = cells_body(
+                columns = everything(),
+                rows = nrow(teams_df_viz)
+            )
+        ) %>%
+        opt_table_font(
+            font = c(
+                google_font(name = "Lato"),
+                default_fonts()
+            )
+        ) %>%
+        tab_source_note(
+            source_note = md("@MambaMetrics | Data: nbastatR")
         )
     
 }
@@ -387,7 +570,7 @@ player_tbl <- function(a, h) {
 rank_tbl <- function(a, h) {
     
     rank_df_away <- away_rank %>% 
-        filter(Team == as.character(a)) %>% 
+        filter(team == as.character(a)) %>% 
         select(1,3,5,7,9,11,13,15,17,21,23,25,27,29,31,33,35,
                37,39,41,43,45,53,55,57,59,61,63,65,67,69,71) %>%
         transpose() %>%
@@ -398,7 +581,7 @@ rank_tbl <- function(a, h) {
         select(1)
     
     rank_df_home <- home_rank %>% 
-        filter(Team == as.character(h)) %>% 
+        filter(team == as.character(h)) %>% 
         select(1,3,5,7,9,11,13,15,17,21,23,25,27,29,31,33,35,
                37,39,41,43,45,53,55,57,59,61,63,65,67,69,71) %>%
         transpose() %>%
@@ -425,35 +608,38 @@ rank_tbl <- function(a, h) {
     rank_df_viz[, c(1,3)] <- lapply(c(1,3), function(x) as.numeric(rank_df_viz[[x]]))
     
     rank_df_viz %>% 
-        mutate(filler = "----------------------") %>%
+        mutate(filler = "vs") %>%
         gt(groupname_col = c("off_def", "filler", "def_off")) %>%
-        opt_all_caps()  %>%
+        # opt_all_caps() %>%
         opt_table_font(
             font = list(
                 google_font("Chivo"),
                 default_fonts()
             )
         ) %>%
+        tab_header(
+            title = md("**Opponent Adjusted Rank**")
+        ) %>%
         tab_spanner(
-            label = "AWAY",
+            label = "Away",
             columns = 1
         ) %>%
         tab_spanner(
-            label = "HOME",
+            label = "Home",
             columns = 3
         ) %>%
         tab_spanner(
-            label = "BLANK",
+            label = "Blank",
             columns = 2
         ) %>%
         tab_style(
             style = list(
                 cell_fill(color = "black"),
-                cell_text(color = "white")
+                cell_text(color = "white", size = px(x = 14))
             ),
             locations = list(
                 cells_column_spanners(
-                    spanners = c("AWAY", "HOME")
+                    spanners = c("Away", "Home")
                 )
             )
         ) %>%
@@ -464,7 +650,7 @@ rank_tbl <- function(a, h) {
             ),
             locations = list(
                 cells_column_spanners(
-                    spanners = c("BLANK")
+                    spanners = c("Blank")
                 )
             )
         ) %>%
@@ -502,17 +688,17 @@ rank_tbl <- function(a, h) {
             data_row.padding = px(3),
             row_group.padding = px(3),
             row_group.background.color = "white",
-            row_group.font.size = 12,
-            source_notes.font.size = 10
+            row_group.font.size = 13,
+            source_notes.font.size = 8
         ) %>%
         cols_align(
             align = "center",
             columns = everything()
         ) %>%
-        cols_width(
-            AT ~ px(85),
-            !AT ~ px(90)
-        ) %>%
+        # cols_width(
+        #     AT ~ px(85),
+        #     !AT ~ px(150)
+        # ) %>%
         cols_label(
             AT = " "
         ) %>%
@@ -523,14 +709,18 @@ rank_tbl <- function(a, h) {
                     "#54d141","#f7e345","#f74545"),
                 domain = c(1,15,30) 
             )
+        ) %>%
+        tab_source_note(
+            source_note = md("@MambaMetrics | Data: nbastatR")
         )
+    
 }
 
 # stats function
 stats_tbl <- function(a, h) {
     
     stats_df_away <- away_final_wt %>% 
-        filter(Team == as.character(a)) %>% 
+        filter(team == as.character(a)) %>% 
         select(-c(10,24,25,26)) %>%
         transpose() %>%
         row_to_names(1) %>%
@@ -540,7 +730,7 @@ stats_tbl <- function(a, h) {
         select(1)
     
     stats_df_home <- home_final_wt %>% 
-        filter(Team == as.character(h)) %>% 
+        filter(team == as.character(h)) %>% 
         select(-c(10,24,25,26)) %>%
         transpose() %>%
         row_to_names(1) %>%
@@ -566,35 +756,38 @@ stats_tbl <- function(a, h) {
     stats_df_viz[, c(1,3)] <- lapply(c(1,3), function(x) as.numeric(stats_df_viz[[x]]))
     
     stats_df_viz %>% 
-        mutate(filler = "----------------------") %>%
+        mutate(filler = "vs") %>%
         gt(groupname_col = c("off_def", "filler", "def_off")) %>%
-        opt_all_caps()  %>%
+        # opt_all_caps() %>%
         opt_table_font(
             font = list(
                 google_font("Chivo"),
                 default_fonts()
             )
         ) %>%
+        tab_header(
+            title = md("**Opponent Adjusted Stats**")
+        ) %>%
         tab_spanner(
-            label = "AWAY",
+            label = "Away",
             columns = 1
         ) %>%
         tab_spanner(
-            label = "HOME",
+            label = "Home",
             columns = 3
         ) %>%
         tab_spanner(
-            label = "BLANK",
+            label = "Blank",
             columns = 2
         ) %>%
         tab_style(
             style = list(
                 cell_fill(color = "black"),
-                cell_text(color = "white")
+                cell_text(color = "white", size = px(x = 14))
             ),
             locations = list(
                 cells_column_spanners(
-                    spanners = c("AWAY", "HOME")
+                    spanners = c("Away", "Home")
                 )
             )
         ) %>%
@@ -605,7 +798,7 @@ stats_tbl <- function(a, h) {
             ),
             locations = list(
                 cells_column_spanners(
-                    spanners = c("BLANK")
+                    spanners = c("Blank")
                 )
             )
         ) %>%
@@ -619,7 +812,7 @@ stats_tbl <- function(a, h) {
         ) %>%
         tab_style(
             style = list(
-                cell_fill(color = "#d39dfa")
+                cell_fill(color = "#e4c8f7") #"#d39dfa" #dfb9fa
             ),
             locations = cells_body(
                 columns = 1
@@ -627,7 +820,7 @@ stats_tbl <- function(a, h) {
         ) %>%
         tab_style(
             style = list(
-                cell_fill(color = "#d39dfa")
+                cell_fill(color = "#e4c8f7") #"#d39dfa" #dfb9fa
             ),
             locations = cells_body(
                 columns = 3
@@ -659,17 +852,17 @@ stats_tbl <- function(a, h) {
             data_row.padding = px(3),
             row_group.padding = px(3),
             row_group.background.color = "white",
-            row_group.font.size = 12,
-            source_notes.font.size = 10
+            row_group.font.size = 13,
+            source_notes.font.size = 8
         ) %>%
         cols_align(
             align = "center",
             columns = everything()
         ) %>%
-        cols_width(
-            AT ~ px(85),
-            !AT ~ px(90)
-        ) %>%
+        # cols_width(
+        #     AT ~ px(85),
+        #     !AT ~ px(150)
+        # ) %>%
         cols_label(
             AT = " "
         ) %>%
@@ -682,6 +875,9 @@ stats_tbl <- function(a, h) {
             columns = c(1,3),
             rows = c(15,16,31),
             decimals = 1
+        ) %>%
+        tab_source_note(
+            source_note = md("@MambaMetrics | Data: nbastatR")
         )
     
 }
@@ -689,18 +885,21 @@ stats_tbl <- function(a, h) {
 # model output - game
 models_tbl <- function(g) {
     
-    model_df_viz <- model_df_fmt %>%
+    model_df_viz <- models_df_fmt %>%
         filter(Game == as.character(g)) %>%
         select(-1)
     
     model_df_viz %>%
         gt(groupname_col = "Metric") %>%
-        opt_all_caps()  %>%
+        # opt_all_caps() %>%
         opt_table_font(
             font = list(
                 google_font("Chivo"),
                 default_fonts()
             )
+        ) %>%
+        tab_header(
+            title = md("**Raw Model Output**")
         ) %>%
         tab_style(
             style = cell_borders(
@@ -713,7 +912,7 @@ models_tbl <- function(g) {
         ) %>%
         tab_options(
             table.font.weight = "bold",
-            table.font.size = 12,
+            table.font.size = 13,
             table.border.top.width = px(3),
             table.border.top.color = "transparent",
             table.border.bottom.color = "transparent",
@@ -729,39 +928,48 @@ models_tbl <- function(g) {
             row_group.padding = px(3),
             row_group.background.color = "#e3e2e1",
             row_group.font.size = 13,
-            source_notes.font.size = 10
+            source_notes.font.size = 8
+        ) %>%
+        cols_label(
+            Team = ""
         ) %>%
         cols_align(
             align = "center",
-            columns = 3:9
+            columns = 3:11
         ) %>%
         fmt_percent(
-            columns = 3:9,
+            columns = 3:11,
             rows = 3:4,
             decimals = 1
         ) %>%
         fmt_number(
-            columns = 3:9,
-            rows = c(1,2,5:8),
+            columns = 3:11,
+            rows = c(1,2,5:7),
             decimals = 1
+        ) %>%
+        tab_source_note(
+            source_note = md("@MambaMetrics | MAMBA")
         )
 }
 
 # model output
 models_all_tbl <- function(m) {
     
-    model_df_all_viz <- model_df_fmt %>%
-        select(1,3,2,4:10) %>%
+    model_df_all_viz <- models_df_fmt %>%
+        select(1,3,2,4:12) %>%
         filter(if (m == "All") Metric != m else Metric == m )
 
     model_df_all_viz %>%
         gt(groupname_col = "Game") %>%
-        opt_all_caps()  %>%
+        # opt_all_caps() %>%
         opt_table_font(
             font = list(
                 google_font("Chivo"),
                 default_fonts()
             )
+        ) %>%
+        tab_header(
+            title = md("**Raw Model Output by Bet Type**")
         ) %>%
         tab_style(
             style = cell_borders(
@@ -790,87 +998,411 @@ models_all_tbl <- function(m) {
             row_group.padding = px(3),
             row_group.background.color = "#e3e2e1",
             row_group.font.size = 13,
-            source_notes.font.size = 10
+            source_notes.font.size = 8
+        ) %>%
+        cols_label(
+            Team = "",
+            Metric = ""
         ) %>%
         cols_align(
             align = "center",
-            columns = 4:10
+            columns = 4:12
         ) %>%
         fmt_percent(
-            columns = 4:10,
+            columns = 4:12,
             rows = Metric == "Moneyline",
             decimals = 1
         ) %>%
         fmt_number(
-            columns = 4:10,
+            columns = 4:12,
             rows = Metric != "Moneyline",
             decimals = 1
         ) %>%
-        opt_row_striping()
+        opt_row_striping(
+        ) %>%
+        tab_source_note(
+            source_note = md("@MambaMetrics | MAMBA")
+        )
 }
 
 
-### Shiny App ---------------------------------------------
-# Game list
-gm_list <- unique(slate_df$GM)
-metric_list <- c("All","Spread","Moneyline","Team Total","Total")
+# model edges output - game
+# models_edges_tbl <- function(g) {
+#     
+#     model_edges_df_viz <- models_edges_df_fmt %>%
+#         filter(Game == as.character(g)) %>%
+#         select(-1)
+#     
+#     model_edges_df_viz %>%
+#         gt(groupname_col = "Metric") %>%
+#         opt_all_caps()  %>%
+#         opt_table_font(
+#             font = list(
+#                 google_font("Chivo"),
+#                 default_fonts()
+#             )
+#         ) %>%
+#         tab_style(
+#             style = cell_borders(
+#                 sides = "bottom", color = "transparent", weight = px(2)
+#             ),
+#             locations = cells_body(
+#                 columns = everything(),
+#                 rows = nrow(models_edges_tbl)
+#             )
+#         ) %>%
+#         tab_options(
+#             table.font.weight = "bold",
+#             table.font.size = 12,
+#             table.border.top.width = px(3),
+#             table.border.top.color = "transparent",
+#             table.border.bottom.color = "transparent",
+#             table.border.bottom.width = px(3),
+#             column_labels.border.top.width = px(3),
+#             column_labels.border.top.color = "transparent",
+#             column_labels.border.bottom.width = px(3),
+#             column_labels.border.bottom.color = "black",
+#             column_labels.font.weight = "bold",
+#             column_labels.background.color = "black",
+#             column_labels.font.size = 14,
+#             data_row.padding = px(3),
+#             row_group.padding = px(3),
+#             row_group.background.color = "#e3e2e1",
+#             row_group.font.size = 13,
+#             source_notes.font.size = 10
+#         ) %>%
+#         cols_label(
+#             Team = ""
+#         ) %>%
+#         cols_align(
+#             align = "center",
+#             columns = 3:11
+#         ) %>%
+#         fmt_percent(
+#             columns = 3:11,
+#             rows = 3:4,
+#             decimals = 1
+#         ) %>%
+#         fmt_number(
+#             columns = 3:11,
+#             rows = c(1,2,5:7),
+#             decimals = 1
+#         )
+# }
 
-# Standings
-standings_df <- standings %>%
-    select(1:4,6:8,10:12,14:16)
+# model edges output
+# models_edges_all_tbl <- function(m) {
+#     
+#     model_edges_df_all_viz <- models_edges_df_fmt %>%
+#         select(1,3,2,4:12) %>%
+#         filter(if (m == "All") Metric != m else Metric == m )
+#     
+#     model_edges_df_all_viz %>%
+#         gt(groupname_col = "Game") %>%
+#         opt_all_caps()  %>%
+#         opt_table_font(
+#             font = list(
+#                 google_font("Chivo"),
+#                 default_fonts()
+#             )
+#         ) %>%
+#         tab_style(
+#             style = cell_borders(
+#                 sides = "bottom", color = "transparent", weight = px(2)
+#             ),
+#             locations = cells_body(
+#                 columns = everything(),
+#                 rows = nrow(model_edges_df_all_viz)
+#             )
+#         ) %>%
+#         tab_options(
+#             table.font.weight = "bold",
+#             table.font.size = 12,
+#             table.border.top.width = px(3),
+#             table.border.top.color = "transparent",
+#             table.border.bottom.color = "transparent",
+#             table.border.bottom.width = px(3),
+#             column_labels.border.top.width = px(3),
+#             column_labels.border.top.color = "transparent",
+#             column_labels.border.bottom.width = px(3),
+#             column_labels.border.bottom.color = "black",
+#             column_labels.font.weight = "bold",
+#             column_labels.background.color = "black",
+#             column_labels.font.size = 14,
+#             data_row.padding = px(3),
+#             row_group.padding = px(3),
+#             row_group.background.color = "#e3e2e1",
+#             row_group.font.size = 13,
+#             source_notes.font.size = 10
+#         ) %>%
+#         cols_label(
+#             Team = "",
+#             Metric = ""
+#         ) %>%
+#         cols_align(
+#             align = "center",
+#             columns = 4:12
+#         ) %>%
+#         fmt_percent(
+#             columns = 4:12,
+#             rows = Metric == "Moneyline",
+#             decimals = 1
+#         ) %>%
+#         fmt_number(
+#             columns = 4:12,
+#             rows = Metric != "Moneyline",
+#             decimals = 1
+#         ) %>%
+#         opt_row_striping()
+# }
 
-# Players
-players_df <- rosters[c(3,4,5)] %>%
-    left_join(team_dict[c(2:3)], by = "slugTeam") %>%
-    left_join(., players_df_basic[c(7,10:16,19,25:42)], by = c("idPlayer"="idPlayerNBA")) %>%
-    left_join(., players_df_adv[c(13,20:39)], by = c("idPlayer"="idPlayerNBA")) %>%
-    select(4,3,5,6,7,13,30,
-           14,15,8,16,17,9,20,21,12,22,23,24,25,28,26,27,29,
-           11,32,42,31,47,48,49,50,43,44,45,46) %>%
-    arrange(nameTeam,desc(ptsPerGame))
 
-colnames(players_df) <- c('TEAM','PLAYER','POS','GP','GS','MIN','PTS','FGM','FGA','FG','3PM','3PA','3FG',
-                              'FTM','FTA','FT','ORB','DRB','TRB','AST','TOV','STL','BLK','PF',
-                              'EFG','TS','USG','PER','OBPM','DBPM','BPM','VORP','OWS','DWS','WS','WS48')
-# Models
-models_df <- all_models %>%
-    select(1:6,8,9,7,10) %>%
-    mutate(gm = paste0(all_models$Away, " @ ", all_models$Home)) %>%
-    rename_with(~ paste0('c', ceiling(seq_along(.x) / 2), '_', 1:2)) %>%
-    pivot_longer(cols = c(1:9), names_to = c(".value", NA), names_sep = '_') %>%
-    mutate(across(c5, ~ na.locf(.x))) %>%
-    select(3:7,2,1)
 
-colnames(models_df) <- c("Team", "Margin", "Win", "TeamScore", "GameTotal", "Game", "Model")
+# model plays
+plays_tbl <- function() {
+    
+    bets_df_viz %>%
+        gt() %>%
+        # opt_all_caps()  %>%
+        opt_table_font(
+            font = list(
+                google_font("Chivo"),
+                default_fonts()
+            )
+        ) %>%
+        tab_header(
+            title = md("**All Model Plays**")
+        ) %>%
+        tab_style(
+            style = cell_borders(
+                sides = "bottom", color = "transparent", weight = px(2)
+            ),
+            locations = cells_body(
+                columns = everything(),
+                rows = nrow(bets_df_viz)
+            )
+        ) %>%
+        tab_options(
+            table.font.weight = "bold",
+            table.font.size = 12,
+            table.border.top.width = px(3),
+            table.border.top.color = "transparent",
+            table.border.bottom.color = "transparent",
+            table.border.bottom.width = px(3),
+            column_labels.border.top.width = px(3),
+            column_labels.border.top.color = "transparent",
+            column_labels.border.bottom.width = px(3),
+            column_labels.border.bottom.color = "black",
+            column_labels.font.weight = "bold",
+            column_labels.background.color = "black",
+            column_labels.font.size = 14,
+            data_row.padding = px(3),
+            row_group.padding = px(3),
+            row_group.background.color = "#e3e2e1",
+            row_group.font.size = 13,
+            source_notes.font.size = 8
+        ) %>%
+        cols_label(
+            Game = "Game",
+            game_time = "Game Time",
+            team = "Team",
+            bet_type = "Bet Type",
+            line = "Line",
+            edge = "Edge"
+        ) %>%
+        cols_align(
+            align = "center",
+            columns = 2:ncol(bets_df_viz)
+        ) %>%
+        fmt_percent(
+            columns = 6,
+            rows = bet_type == "ML",
+            decimals = 1
+        ) %>%
+        fmt_number(
+            columns = 6,
+            rows = bet_type != "ML",
+            decimals = 1
+        ) %>%
+        opt_row_striping(
+        ) %>%
+        tab_source_note(
+            source_note = md("@MambaMetrics | MAMBA")
+        )
+}
 
-models_df <- models_df %>%
-    pivot_wider(names_from = Model, values_from = c(Margin, Win, TeamScore, GameTotal))
 
-models_df_marg <- models_df  %>% mutate(Metric = "Spread") %>% select(2,31,1,3:9)
-colnames(models_df_marg) <- c("Game","Metric","Team",
-                              "Kendall - Simple","Tyra - Least Squares","Gisele - KNN","Kate - Random Forest",
-                              "Cindy - SVM","Naomi - Neural Net","Adriana - Ensemble")
-models_df_win <- models_df  %>% mutate(Metric = "Moneyline") %>% select(2,31,1,10:16)
-colnames(models_df_win) <- c("Game","Metric","Team",
-                             "Kendall - Simple","Tyra - Least Squares","Gisele - KNN","Kate - Random Forest",
-                             "Cindy - SVM","Naomi - Neural Net","Adriana - Ensemble")
-models_df_tm_total <- models_df  %>% mutate(Metric = "Total") %>% select(2,31,1,24:30)
-colnames(models_df_tm_total) <- c("Game","Metric","Team",
-                                  "Kendall - Simple","Tyra - Least Squares","Gisele - KNN","Kate - Random Forest",
-                                  "Cindy - SVM","Naomi - Neural Net","Adriana - Ensemble")
-models_df_gm_total <- models_df  %>% mutate(Metric = "Team Total") %>% select(2,31,1,17:23)
-colnames(models_df_gm_total) <- c("Game","Metric","Team",
-                                  "Kendall - Simple","Tyra - Least Squares","Gisele - KNN","Kate - Random Forest",
-                                  "Cindy - SVM","Naomi - Neural Net","Adriana - Ensemble")
+# official model plays
+plays_official_tbl <- function() {
+    
+    bets_official_df_viz %>%
+        gt() %>%
+        # opt_all_caps()  %>%
+        opt_table_font(
+            font = list(
+                google_font("Chivo"),
+                default_fonts()
+            )
+        ) %>%
+        tab_header(
+            title = md("**All Official Plays**")
+        ) %>%
+        tab_style(
+            style = cell_borders(
+                sides = "bottom", color = "transparent", weight = px(2)
+            ),
+            locations = cells_body(
+                columns = everything(),
+                rows = nrow(bets_official_df_viz)
+            )
+        ) %>%
+        tab_options(
+            table.font.weight = "bold",
+            table.font.size = 12,
+            table.border.top.width = px(3),
+            table.border.top.color = "transparent",
+            table.border.bottom.color = "transparent",
+            table.border.bottom.width = px(3),
+            column_labels.border.top.width = px(3),
+            column_labels.border.top.color = "transparent",
+            column_labels.border.bottom.width = px(3),
+            column_labels.border.bottom.color = "black",
+            column_labels.font.weight = "bold",
+            column_labels.background.color = "black",
+            column_labels.font.size = 14,
+            data_row.padding = px(3),
+            row_group.padding = px(3),
+            row_group.background.color = "#e3e2e1",
+            row_group.font.size = 13,
+            source_notes.font.size = 8
+        ) %>%
+        cols_label(
+            Game = "Game",
+            game_time = "Game Time",
+            team = "Team",
+            bet_type = "Bet type",
+            line = "Line",
+            edge = "Edge"
+        ) %>%
+        cols_align(
+            align = "center",
+            columns = 2:ncol(bets_official_df_viz)
+        ) %>%
+        fmt_percent(
+            columns = 6,
+            rows = bet_type == "ML",
+            decimals = 1
+        ) %>%
+        fmt_number(
+            columns = 6,
+            rows = bet_type != "ML",
+            decimals = 1
+        ) %>%
+        opt_row_striping(
+        ) %>%
+        tab_source_note(
+            source_note = md("@MambaMetrics | MAMBA")
+        )
+}
 
-model_df_fmt <- rbind(models_df_marg, models_df_win, models_df_gm_total, models_df_tm_total)
 
-# Define server logic to plot various variables against mpg ----
+# variable importance
+var_imp_tbl <- function() {
+    
+    imp_viz %>%
+        gt() %>%
+        # opt_all_caps()  %>%
+        opt_table_font(
+            font = list(
+                google_font("Chivo"),
+                default_fonts()
+            )
+        ) %>%
+        tab_header(
+            title = md("**MAMBA Variable Importance**")
+        ) %>%
+        tab_spanner(
+            label = "Scores",
+            columns = 1:2
+        ) %>%
+        tab_spanner(
+            label = "Win %",
+            columns = 3:4
+        ) %>%
+        tab_style(
+            style = list(
+                cell_fill(color = "black"),
+                cell_text(color = "white")
+            ),
+            locations = list(
+                cells_column_spanners(
+                    spanners = c("Scores", "Win %")
+                )
+            )
+        ) %>%
+        tab_style(
+            style = cell_borders(
+                sides = "bottom", color = "transparent", weight = px(2)
+            ),
+            locations = cells_body(
+                columns = everything(),
+                rows = nrow(imp_viz)
+            )
+        ) %>%
+        tab_options(
+            table.font.weight = "bold",
+            table.font.size = 12,
+            table.border.top.width = px(3),
+            table.border.top.color = "transparent",
+            table.border.bottom.color = "transparent",
+            table.border.bottom.width = px(3),
+            column_labels.border.top.width = px(3),
+            column_labels.border.top.color = "transparent",
+            column_labels.border.bottom.width = px(3),
+            column_labels.border.bottom.color = "black",
+            column_labels.font.weight = "bold",
+            column_labels.background.color = "#e3e2e1",
+            column_labels.font.size = 12,
+            data_row.padding = px(3),
+            row_group.padding = px(3),
+            row_group.background.color = "white",
+            row_group.font.size = 12,
+            source_notes.font.size = 8
+        ) %>%
+        cols_align(
+            align = "center",
+            columns = everything()
+        ) %>%
+        cols_label(
+            score_var = "Variable",
+            imp_score = "Importance",
+            win_var = "Variable",
+            imp_win = "Importance"
+        ) %>%
+        gt_add_divider(columns = "imp_score", style = "solid"
+        ) %>%
+        opt_row_striping(
+        ) %>%
+        tab_source_note(
+            source_note = md("@MambaMetrics | MAMBA")
+        )
+
+}
+
+
+
+
+
+### Shiny App ----
+
+# Define server logic to plot various variables against mpg
 server <- function(input, output, session) {
     
     variablename <- reactiveVal(gm_list[1])
     
     metricname <- reactiveVal(metric_list[1])
+    
+    locationname <- reactiveVal(loc_list[1])
     
     formulaText <- reactive({
         paste0(variablename())
@@ -892,11 +1424,15 @@ server <- function(input, output, session) {
         updateSelectInput(session, "variable3", selected=input$variable3)
         metricname(input$variable3)
     })
+    observeEvent(input$variable4, {
+        updateSelectInput(session, "variable4", selected=input$variable4)
+        locationname(input$variable4)
+    })
 
     #Reactive
     gm_input <- reactive({
         
-        xx <- slate_df %>% filter(GM == as.character(variablename()))
+        xx <- slate_df %>% filter(Game == as.character(variablename()))
         return(xx)
         
     })
@@ -904,6 +1440,12 @@ server <- function(input, output, session) {
     metric_input <- reactive({
 
         metricname()
+        
+    })
+    
+    location_input <- reactive({
+        
+        locationname()
         
     })
     
@@ -918,6 +1460,13 @@ server <- function(input, output, session) {
     output$player_plot <- render_gt({
 
         player_tbl(gm_input()$Away, gm_input()$Home)
+        
+    })
+    
+    ### Team Stats Plot
+    output$team_plot <- render_gt({
+        
+        team_tbl(location_input())
         
     })
     
@@ -938,7 +1487,7 @@ server <- function(input, output, session) {
     ### Models Plot - Game
     output$models_plot <- render_gt({
         
-        models_tbl(gm_input()$GM)
+        models_tbl(gm_input()$Game)
         
     })
     
@@ -949,19 +1498,54 @@ server <- function(input, output, session) {
         
     })
     
+    ### Plays Plot
+    output$plays_plot <- render_gt({
+        
+        plays_tbl()
+        
+    })
+    
+    ### Official Plays Plot
+    output$plays_official_plot <- render_gt({
+        
+        plays_official_tbl()
+        
+    })
+    
+    ### Var Imp Plot
+    output$var_imp_plot <- render_gt({
+        
+        var_imp_tbl()
+        
+    })
+    
 }
 
-# Define UI
+### Define UI ----
 ui <- fluidPage(
     
     theme = bslib::bs_theme(bootswatch = "darkly"),
     
-    titlePanel("Mamba Metrics - Today's Plays"),
+    titlePanel("MAMBA Metrics - Today's Plays"),
     
     # fluidRow(column(selectInput("variable", "Game:", gm_list), width = 5)),
     
     tabsetPanel(type = "tabs",
-                tabPanel("Models & Summary", fluid = T,
+                tabPanel("Plays", fluid = T,
+                         sidebarLayout(
+                             sidebarPanel(
+                                 paste0("All Plays for ", format(Sys.Date(), "%B %d %Y")),
+                                 p(),
+                                 p("*Official Plays are vetted to account for last minute lineup changes, major injuries, etc.")
+                             ),
+                             mainPanel(
+                                 gt_output("plays_plot"),
+                                 h3(textOutput(""), align = "center"),
+                                 gt_output("plays_official_plot")
+                             )
+                         )
+                ),
+                tabPanel("Game Summary", fluid = T,
                          sidebarLayout(
                              sidebarPanel(
                                  selectInput("variable1", "Game:", gm_list),
@@ -985,30 +1569,155 @@ ui <- fluidPage(
                              )
                          )
                 ),
-                tabPanel("Player Stats", fluid = T,
-                         selectInput("variable2", "Game:", gm_list),
-                         mainPanel(
-                             gt_output("player_plot"),
-                             width = 12
-                         )
-                ),
-                tabPanel("All Models", fluid = T,
+                tabPanel("All Games", fluid = T,
                          sidebarLayout(
                              sidebarPanel(
-                                 selectInput("variable3", "Metric:", metric_list),
-                                 "Model Stats"
+                                 selectInput("variable3", "Bet Type:", metric_list),
+                                 gt_output("var_imp_plot")
                              ),
                              mainPanel(
                                  gt_output("models_all_plot")
                              )
                          )
+                ),
+                tabPanel("Player Stats", fluid = T,
+                         selectInput("variable2", "Game:", gm_list, width = '375px'),
+                         mainPanel(
+                             gt_output("player_plot"),
+                             width = 12
+                         )
+                ),
+                tabPanel("Team Stats", fluid = T,
+                         selectInput("variable4", "Location:", loc_list, width = '375px'),
+                         mainPanel(
+                             gt_output("team_plot"),
+                             width = 12
+                         )
                 )
+                
     )
 )
 
 
-shinyApp(ui, server) 
+
+shinyApp(ui, server)
 ## runApp("~/shinyapp")
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+### Model Performance ----
+
+# fixed keys
+df <- results_book %>% 
+    filter(kendall_spread_edge >= 0.1) %>%
+    # mutate(day_month = format(as_date(date), "%d-%m")) %>%
+    mutate(day_month = lubridate::month(date, label = T)) %>%
+    group_by(day_month) %>%
+    summarise(day_total_2021 = sum(kendall_spread_result))
+# mutate(cume_2021 = cumsum(day_total_2021))
+
+df %>%
+    ggplot(aes(day_month)) +
+    geom_line(aes(y=cume_2021, color="2021"), size=1.24, group=1) +
+    geom_line(aes(y=cume_2022, color="2022"), size=1.24, group=1) +
+    scale_color_manual(name = "", values = c("2021" = "#9590FF", "2022" = "darkblue")) +
+    labs(x = "Month", y = "Units", title = "Least Squares Model Performance", subtitle = "Moneyline") +
+    scale_x_discrete() + 
+    theme_bw()
+
+
+
+# df <- read_xlsx(paste0("/Users/Jesse/Documents/MyStuff/NBA Betting/Backtest 2022/Backtest Output/",
+#                        "2021 Tyra/Backtest_Results_2021_Tyra_eFG.xlsx"))
+# df <- df %>% 
+#     filter(kendall_margin_edge >= 0.1) %>%
+#     # mutate(day_month = format(as_date(date), "%d-%m")) %>%
+#     mutate(day_month = lubridate::month(date, label = T)) %>%
+#     group_by(day_month) %>%
+#     summarise(day_total_2021 = sum(kendall_margin_result))
+#     # mutate(cume_2021 = cumsum(day_total_2021))
+#     
+# 
+# 
+# df2 <- read_xlsx(paste0("/Users/Jesse/Documents/MyStuff/NBA Betting/Backtest 2022/Backtest Output/",
+#                        "Tyra/Backtest_Results_2022_Tyra_eFG.xlsx"))
+# df2 <- df2 %>% 
+#     filter(tyra_ml_edge >= 0.2) %>%
+#     # mutate(day_month = format(as_date(date), "%d-%m")) %>%
+#     mutate(day_month = lubridate::month(date, label = T)) %>%
+#     group_by(day_month) %>%
+#     summarise(day_total_2022 = sum(tyra_ml_result))
+#     # mutate(cume_2022 = cumsum(day_total_2022))
+# 
+# # df <- rbind(df, df2)
+# df <- df %>% full_join(df2)
+# df$day_month <- factor(df$day_month, levels = c('Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May'))
+# 
+# df <- df %>%
+#     mutate(cume_2021 = cumsum(day_total_2021)) %>%
+#     arrange(day_month) %>%
+#     mutate(cume_2022 = cumsum(day_total_2022))
+# 
+# 
+# df %>%
+#     ggplot(aes(day_month)) +
+#     geom_line(aes(y=cume_2021, color="2021"), size=1.24, group=1) +
+#     geom_line(aes(y=cume_2022, color="2022"), size=1.24, group=1) +
+#     scale_color_manual(name = "", values = c("2021" = "#9590FF", "2022" = "darkblue")) +
+#     labs(x = "Month", y = "Units", title = "Least Squares Model Performance", subtitle = "Moneyline") +
+#     scale_x_discrete() + 
+#     theme_bw()
+
+
+
+# dynamic keys
+df <- read_xlsx(paste0("/Users/Jesse/Documents/MyStuff/NBA Betting/Backtest 2022/Backtest Output/",
+                       "Backtest_Results_2022_Tyra_All_Adj.xlsx"))
+df$date <- as_date(df$date)
+
+t <- seq(0.1,25,0.1)
+# t <- seq(0.01,1,0.01)
+b <- 1
+h <- length(t)
+bst_tot <- 0
+# bst_flt <- 10
+
+for (b in b:h) {
+    
+    flt <- as.numeric(t[b])
+    
+    temp <- as.numeric(df %>% filter(tyra_spread_edge >= flt) %>% 
+                           summarise(day_total = sum(tyra_spread_result)))
+    
+    if (temp > bst_tot) {
+        bst_tot <- temp
+        bst_flt <- flt
+    }
+}
+
+df %>%
+    filter(tyra_spread_edge >= bst_flt) %>%
+    group_by(date) %>%
+    summarise(day_total = sum(tyra_spread_result)) %>%
+    mutate(cume = cumsum(day_total)) %>%
+    ggplot(aes(date)) +
+    geom_line(aes(y=cume, color="All Plays"), size=1) +
+    scale_color_manual(name = "", values = c("All Plays" = "darkblue")) +
+    labs(x = "Date", y = "Units", title = "2022 Performance", subtitle = "Model") +
+    theme_bw()
+
+print(bst_tot)
+print(bst_flt)
+print(df %>% filter(tyra_spread_edge >= bst_flt) %>% nrow())
+# use cat from model training for this output
