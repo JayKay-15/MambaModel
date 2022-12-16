@@ -1,7 +1,7 @@
 ### Models 2022 ----
 
-# td <- as_date(Sys.Date())
-td <- as_date("2022-10-18")
+td <- as_date(Sys.Date())
+# td <- as_date("2022-10-18")
 
 ### Slate ----
 
@@ -23,6 +23,10 @@ slate <- slate %>%
                   pattern = "Los Angeles Clippers", replacement = "LA Clippers"))
 
 game_times <- slate %>% select(2,3,5)
+
+### Use Season Stats ----
+# away_final_wt <- season_final %>% rename(team = teamName)
+# home_final_wt <- season_final %>% rename(team = teamName)
 
 ### Preprocessing Stats ----
 
@@ -642,3 +646,4 @@ rm(list=ls()[! ls() %in% c("away_final_wt","home_final_wt","league_avg","standin
                            "chrissy_predict","kate_predict", "cindy_predict", 
                            "naomi_predict", "heidi_predict", "adriana_predict")])
 
+print("Models Complete")

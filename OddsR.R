@@ -1,8 +1,8 @@
 ### OddsR ----
 
 library(tidyverse)
-library(theoddsapi)
 library(lubridate)
+library(theoddsapi)
 
 Sys.setenv(THEODDS_API_KEY = "9f158680c234e152e9df4027f4eccf1f")
 
@@ -15,23 +15,30 @@ all_ml <- get_odds("basketball_nba", mkt = "h2h") %>%
 
 hist_spread <- all_spread %>%
     mutate(commence_time = as_date(commence_time)) %>%
-    filter(commence_time == Sys.Date()+3) %>%
+    filter(commence_time == Sys.Date()) %>%
     rename(line = spreads) %>%
     mutate(bet_type = "spread")
 
 hist_total <- all_total %>%
     mutate(commence_time = as_date(commence_time)) %>%
-    filter(commence_time == Sys.Date()+3) %>%
+    filter(commence_time == Sys.Date()) %>%
     rename(line = totals) %>%
     mutate(bet_type = "total")
 
 hist_ml <- all_ml %>%
     mutate(commence_time = as_date(commence_time)) %>%
-    filter(commence_time == Sys.Date()+3) %>%
+    filter(commence_time == Sys.Date()) %>%
     rename(line = h2h) %>%
     mutate(bet_type = "ml")
 
 hist_odds <- bind_rows(hist_spread,hist_total,hist_ml)
+
+hist_odds %>%
+    filter(book == "DraftKings" & bet_type == "spread")
+hist_odds %>%
+    filter(book == "DraftKings" & bet_type == "ml")
+hist_odds %>%
+    filter(book == "DraftKings" & bet_type == "total")
 
 
 ### Add to DB ----
@@ -42,4 +49,4 @@ DBI::dbWriteTable(NBAdb, "Odds", hist_odds, append = T)
 
 DBI::dbDisconnect(NBAdb)
 
-
+print("OddsR Complete")

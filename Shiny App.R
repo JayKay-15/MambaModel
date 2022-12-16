@@ -33,11 +33,11 @@ team_dict <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(),
 
 players_df_basic <- players_df_basic %>%
     collect() %>%
-    filter(isSeasonCurrent == 1)
+    filter(yearSeason == 2022)
 
 players_df_adv <- players_df_adv %>%
     collect() %>%
-    filter(isSeasonCurrent == 1)
+    filter(yearSeason == 2022)
 
 team_dict <- team_dict %>%
     collect()
@@ -71,7 +71,7 @@ colnames(slate_df) <- c("Game", "Away", "Home", "Game Time", "Arena", "Location"
 
 ### Filter lists ----
 gm_list <- unique(slate_df$Game)
-metric_list <- c("All", "Spread", "Moneyline", "Total", "Team Total")
+metric_list <- c("All", "Margin", "Win %", "Game Points", "Team Points")
 tm_list <- unique(season_final$teamName)
 loc_list <- c("Season", "Away", "Home")
 
@@ -107,19 +107,19 @@ colnames(models_df_raw) <- c("team", "margin", "win", "team_score", "total", "ga
 models_df <- models_df_raw %>%
     pivot_wider(names_from = model, values_from = c(margin, win, team_score, total))
 
-models_df_marg <- models_df  %>% mutate(metric = "Spread") %>% select(2,39,1,3:11)
+models_df_marg <- models_df  %>% mutate(metric = "Margin") %>% select(2,39,1,3:11)
 colnames(models_df_marg) <- c("Game","Metric","Team",
                               "Kendall", "Tyra", "Gisele", "Chrissy", 
                               "Kate", "Cindy","Naomi", "Heidi","Adriana")
-models_df_win <- models_df  %>% mutate(metric = "Moneyline") %>% select(2,39,1,12:20)
+models_df_win <- models_df  %>% mutate(metric = "Win %") %>% select(2,39,1,12:20)
 colnames(models_df_win) <- c("Game","Metric","Team",
                              "Kendall", "Tyra", "Gisele", "Chrissy", 
                              "Kate", "Cindy","Naomi", "Heidi","Adriana")
-models_df_gm_total <- models_df  %>% mutate(metric = "Total") %>% select(2,39,1,30:38)
+models_df_gm_total <- models_df  %>% mutate(metric = "Game Points") %>% select(2,39,1,30:38)
 colnames(models_df_gm_total) <- c("Game","Metric","Team",
                                   "Kendall", "Tyra", "Gisele", "Chrissy", 
                                   "Kate", "Cindy","Naomi", "Heidi","Adriana")
-models_df_tm_total <- models_df  %>% mutate(metric = "Team Total") %>% select(2,39,1,21:29)
+models_df_tm_total <- models_df  %>% mutate(metric = "Team Points") %>% select(2,39,1,21:29)
 colnames(models_df_tm_total) <- c("Game","Metric","Team",
                                   "Kendall", "Tyra", "Gisele", "Chrissy", 
                                   "Kate", "Cindy","Naomi", "Heidi","Adriana")
@@ -127,47 +127,47 @@ colnames(models_df_tm_total) <- c("Game","Metric","Team",
 models_df_fmt <- rbind(models_df_marg, models_df_win, models_df_gm_total, models_df_tm_total)
 
 models_df_fmt <- models_df_fmt %>%
-    mutate(Team = case_when(Metric == "Total" ~ Game,
+    mutate(Team = case_when(Metric == "Game Points" ~ Game,
                             TRUE ~ Team)) %>%
     distinct()
 
 ### Edges ----
-models_edges_df_raw <- models_df_raw %>% 
-    left_join(plays[,5:8], by = "team") %>%
-    mutate(margin = margin - spread) %>%
-    mutate(win = win - (if_else(ml<0,((ml*-1)/((ml*-1)+100)),(100/(ml+100))))) %>%
-    mutate(total = total.x - total.y) %>%
-    select(1:3,11,6,7)
-
-models_edges_df_raw <- models_edges_df_raw %>%
-    mutate(margin = round(margin, 1)) %>%
-    mutate(win = round(win, 3)) %>%
-    mutate(total = round(total, 1))
-
-colnames(models_edges_df_raw) <- c("team", "margin", "win", "total", "game", "model")
-
-models_edges_df <- models_edges_df_raw %>%
-    pivot_wider(names_from = model, values_from = c(margin, win, total))
-
-models_edges_df_marg <- models_edges_df  %>% mutate(metric = "Spread") %>% select(2,30,1,3:11)
-colnames(models_edges_df_marg) <- c("Game","Metric","Team",
-                              "Kendall", "Tyra", "Gisele", "Chrissy", 
-                              "Kate", "Cindy","Naomi", "Heidi","Adriana")
-models_edges_df_win <- models_edges_df  %>% mutate(metric = "Moneyline") %>% select(2,30,1,12:20)
-colnames(models_edges_df_win) <- c("Game","Metric","Team",
-                                   "Kendall", "Tyra", "Gisele", "Chrissy", 
-                                   "Kate", "Cindy","Naomi", "Heidi","Adriana")
-models_edges_df_gm_total <- models_edges_df  %>% mutate(metric = "Total") %>% select(2,30,1,21:29)
-colnames(models_edges_df_gm_total) <- c("Game","Metric","Team",
-                                        "Kendall", "Tyra", "Gisele", "Chrissy", 
-                                        "Kate", "Cindy","Naomi", "Heidi","Adriana")
-
-models_edges_df_fmt <- rbind(models_edges_df_marg, models_edges_df_win, models_edges_df_gm_total)
-
-models_edges_df_fmt <- models_edges_df_fmt %>%
-    mutate(Team = case_when(Metric == "Total" ~ Game,
-                            TRUE ~ Team)) %>%
-    distinct()
+# models_edges_df_raw <- models_df_raw %>% 
+#     left_join(plays[,5:8], by = "team") %>%
+#     mutate(margin = margin - spread) %>%
+#     mutate(win = win - (if_else(ml<0,((ml*-1)/((ml*-1)+100)),(100/(ml+100))))) %>%
+#     mutate(total = total.x - total.y) %>%
+#     select(1:3,11,6,7)
+# 
+# models_edges_df_raw <- models_edges_df_raw %>%
+#     mutate(margin = round(margin, 1)) %>%
+#     mutate(win = round(win, 3)) %>%
+#     mutate(total = round(total, 1))
+# 
+# colnames(models_edges_df_raw) <- c("team", "margin", "win", "total", "game", "model")
+# 
+# models_edges_df <- models_edges_df_raw %>%
+#     pivot_wider(names_from = model, values_from = c(margin, win, total))
+# 
+# models_edges_df_marg <- models_edges_df  %>% mutate(metric = "Margin") %>% select(2,30,1,3:11)
+# colnames(models_edges_df_marg) <- c("Game","Metric","Team",
+#                               "Kendall", "Tyra", "Gisele", "Chrissy", 
+#                               "Kate", "Cindy","Naomi", "Heidi","Adriana")
+# models_edges_df_win <- models_edges_df  %>% mutate(metric = "Win %") %>% select(2,30,1,12:20)
+# colnames(models_edges_df_win) <- c("Game","Metric","Team",
+#                                    "Kendall", "Tyra", "Gisele", "Chrissy", 
+#                                    "Kate", "Cindy","Naomi", "Heidi","Adriana")
+# models_edges_df_gm_total <- models_edges_df  %>% mutate(metric = "Game Points") %>% select(2,30,1,21:29)
+# colnames(models_edges_df_gm_total) <- c("Game","Metric","Team",
+#                                         "Kendall", "Tyra", "Gisele", "Chrissy", 
+#                                         "Kate", "Cindy","Naomi", "Heidi","Adriana")
+# 
+# models_edges_df_fmt <- rbind(models_edges_df_marg, models_edges_df_win, models_edges_df_gm_total)
+# 
+# models_edges_df_fmt <- models_edges_df_fmt %>%
+#     mutate(Team = case_when(Metric == "Game Points" ~ Game,
+#                             TRUE ~ Team)) %>%
+#     distinct()
     
 ### Plays - All ----
 bets_df <- bets %>%
@@ -1010,12 +1010,12 @@ models_all_tbl <- function(m) {
         ) %>%
         fmt_percent(
             columns = 4:12,
-            rows = Metric == "Moneyline",
+            rows = Metric == "Win %",
             decimals = 1
         ) %>%
         fmt_number(
             columns = 4:12,
-            rows = Metric != "Moneyline",
+            rows = Metric != "Win %",
             decimals = 1
         ) %>%
         opt_row_striping(
@@ -1536,7 +1536,7 @@ ui <- fluidPage(
                              sidebarPanel(
                                  paste0("All Plays for ", format(Sys.Date(), "%B %d %Y")),
                                  p(),
-                                 p("*Official Plays are vetted to account for last minute lineup changes, major injuries, etc.")
+                                 p("*Official Plays contain a human element and are filtered by me")
                              ),
                              mainPanel(
                                  gt_output("plays_plot"),
@@ -1613,111 +1613,3 @@ shinyApp(ui, server)
 
 
 
-
-
-
-### Model Performance ----
-
-# fixed keys
-df <- results_book %>% 
-    filter(kendall_spread_edge >= 0.1) %>%
-    # mutate(day_month = format(as_date(date), "%d-%m")) %>%
-    mutate(day_month = lubridate::month(date, label = T)) %>%
-    group_by(day_month) %>%
-    summarise(day_total_2021 = sum(kendall_spread_result))
-# mutate(cume_2021 = cumsum(day_total_2021))
-
-df %>%
-    ggplot(aes(day_month)) +
-    geom_line(aes(y=cume_2021, color="2021"), size=1.24, group=1) +
-    geom_line(aes(y=cume_2022, color="2022"), size=1.24, group=1) +
-    scale_color_manual(name = "", values = c("2021" = "#9590FF", "2022" = "darkblue")) +
-    labs(x = "Month", y = "Units", title = "Least Squares Model Performance", subtitle = "Moneyline") +
-    scale_x_discrete() + 
-    theme_bw()
-
-
-
-# df <- read_xlsx(paste0("/Users/Jesse/Documents/MyStuff/NBA Betting/Backtest 2022/Backtest Output/",
-#                        "2021 Tyra/Backtest_Results_2021_Tyra_eFG.xlsx"))
-# df <- df %>% 
-#     filter(kendall_margin_edge >= 0.1) %>%
-#     # mutate(day_month = format(as_date(date), "%d-%m")) %>%
-#     mutate(day_month = lubridate::month(date, label = T)) %>%
-#     group_by(day_month) %>%
-#     summarise(day_total_2021 = sum(kendall_margin_result))
-#     # mutate(cume_2021 = cumsum(day_total_2021))
-#     
-# 
-# 
-# df2 <- read_xlsx(paste0("/Users/Jesse/Documents/MyStuff/NBA Betting/Backtest 2022/Backtest Output/",
-#                        "Tyra/Backtest_Results_2022_Tyra_eFG.xlsx"))
-# df2 <- df2 %>% 
-#     filter(tyra_ml_edge >= 0.2) %>%
-#     # mutate(day_month = format(as_date(date), "%d-%m")) %>%
-#     mutate(day_month = lubridate::month(date, label = T)) %>%
-#     group_by(day_month) %>%
-#     summarise(day_total_2022 = sum(tyra_ml_result))
-#     # mutate(cume_2022 = cumsum(day_total_2022))
-# 
-# # df <- rbind(df, df2)
-# df <- df %>% full_join(df2)
-# df$day_month <- factor(df$day_month, levels = c('Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May'))
-# 
-# df <- df %>%
-#     mutate(cume_2021 = cumsum(day_total_2021)) %>%
-#     arrange(day_month) %>%
-#     mutate(cume_2022 = cumsum(day_total_2022))
-# 
-# 
-# df %>%
-#     ggplot(aes(day_month)) +
-#     geom_line(aes(y=cume_2021, color="2021"), size=1.24, group=1) +
-#     geom_line(aes(y=cume_2022, color="2022"), size=1.24, group=1) +
-#     scale_color_manual(name = "", values = c("2021" = "#9590FF", "2022" = "darkblue")) +
-#     labs(x = "Month", y = "Units", title = "Least Squares Model Performance", subtitle = "Moneyline") +
-#     scale_x_discrete() + 
-#     theme_bw()
-
-
-
-# dynamic keys
-df <- read_xlsx(paste0("/Users/Jesse/Documents/MyStuff/NBA Betting/Backtest 2022/Backtest Output/",
-                       "Backtest_Results_2022_Tyra_All_Adj.xlsx"))
-df$date <- as_date(df$date)
-
-t <- seq(0.1,25,0.1)
-# t <- seq(0.01,1,0.01)
-b <- 1
-h <- length(t)
-bst_tot <- 0
-# bst_flt <- 10
-
-for (b in b:h) {
-    
-    flt <- as.numeric(t[b])
-    
-    temp <- as.numeric(df %>% filter(tyra_spread_edge >= flt) %>% 
-                           summarise(day_total = sum(tyra_spread_result)))
-    
-    if (temp > bst_tot) {
-        bst_tot <- temp
-        bst_flt <- flt
-    }
-}
-
-df %>%
-    filter(tyra_spread_edge >= bst_flt) %>%
-    group_by(date) %>%
-    summarise(day_total = sum(tyra_spread_result)) %>%
-    mutate(cume = cumsum(day_total)) %>%
-    ggplot(aes(date)) +
-    geom_line(aes(y=cume, color="All Plays"), size=1) +
-    scale_color_manual(name = "", values = c("All Plays" = "darkblue")) +
-    labs(x = "Date", y = "Units", title = "2022 Performance", subtitle = "Model") +
-    theme_bw()
-
-print(bst_tot)
-print(bst_flt)
-print(df %>% filter(tyra_spread_edge >= bst_flt) %>% nrow())
-# use cat from model training for this output

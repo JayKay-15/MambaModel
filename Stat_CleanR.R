@@ -4,6 +4,7 @@
 
 library(tidyverse)
 library(lubridate)
+library(data.table)
 library(readxl)
 library(openxlsx)
 library(nbastatR)
@@ -23,7 +24,7 @@ td <- as_date(Sys.Date())
 
 ### Pull game logs & arrange by date
 
-dataGameLogsTeam <- game_logs(seasons = 2022, result_types = "team", season_types = "Regular Season")
+dataGameLogsTeam <- game_logs(seasons = 2023, result_types = "team", season_types = "Regular Season")
 
 ### Attach game logs to itself to get all stats for each game in one row
 
@@ -281,6 +282,7 @@ season_lg_avg <- season_lg_avg %>%
 # COMBINE LEAGUE AVERAGE TABLES
 
 league_avg <- bind_rows(season_lg_avg, home_lg_avg, away_lg_avg)
+
 
 ##### RAW SCHEDULE AND RESULTS ######
 
@@ -807,7 +809,7 @@ colnames(season_final_wt) <- c("team","FG","SR2","FG3","SR3","FT","FTR","ORB","D
 
 #### GAME DETAILS ####
 
-standings_raw <- standings(seasons = 2022, season_types = c("Regular Season"))
+standings_raw <- standings(seasons = 2023, season_types = c("Regular Season"))
 
 standings <- standings_raw %>%
     select("nameTeam","nameConference","nameDivison","recordOverall","pctWinTeam","recordLast10","slugStreakCurrent",
@@ -853,7 +855,43 @@ home_rank <- home_final_wt %>%
            18,59,19,60,20,61,21,62,22,63,23,64,24,65,25,66,26,67,27,68,28,49,29,50,30,51,31,52,32,69,33,70,
            34,53,35,71,36,54)
 
+#### LEAGUE AVERAGE FOR ANALYSIS ####
+lg_avg <- gl
+
+lg_avg$Poss <- with(lg_avg, teamFGA - teamORB + teamTOV + (.44 * teamFTA))
+lg_avg$oPoss <- with(lg_avg, opptFGA - opptORB + opptTOV + (.44 * opptFTA))
+lg_avg$Pace <- with(lg_avg, 48 * (Poss + oPoss) / (2 * (teamMin/5)))
+lg_avg$ORtg <- with(lg_avg, (teamPTS / Poss) * 100)
+lg_avg$DRtg <- with(lg_avg, (opptPTS / oPoss) * 100)
+lg_avg$NRtg <- with(lg_avg, ORtg - DRtg)
+
+lg_avg$FG <- with(lg_avg, teamFGM / teamFGA)
+lg_avg$SR2 <- with(lg_avg, (teamFGA - team3PA) / teamFGA)
+lg_avg$FG3 <- with(lg_avg, team3PM / team3PA)
+lg_avg$SR3 <- with(lg_avg, team3PA / teamFGA)
+lg_avg$FT <- with(lg_avg, teamFTM / teamFTA)
+lg_avg$FTR <- with(lg_avg, teamFTM / teamFGA)
+lg_avg$ORB <- with(lg_avg, teamORB / (teamORB + opptDRB))
+lg_avg$DRB <- with(lg_avg, teamDRB / (teamDRB + opptORB))
+lg_avg$TRB <- with(lg_avg, teamTRB / (teamTRB + opptTRB))
+lg_avg$AST_TOV <- with(lg_avg, teamAST / teamTOV)
+lg_avg$AST <- with(lg_avg, teamAST / teamFGM)
+lg_avg$AST_RATIO <- with(lg_avg, (teamAST*100) / (teamFGA + (0.44 * teamFTA) + teamAST + teamTOV))
+lg_avg$TOV <- with(lg_avg, teamTOV / Poss)
+lg_avg$STL <- with(lg_avg, teamSTL / oPoss)
+lg_avg$BLK <- with(lg_avg, teamBLK / (opptFGA - oppt3PA))
+lg_avg$PF <- with(lg_avg, teamPF / oPoss)
+lg_avg$eFG <- with(lg_avg, (teamFGM + .5 * team3PM) / teamFGA)
+lg_avg$TS <- with(lg_avg, teamPTS / (2 * teamFGA + .44 * teamFTA))
+
+NBAdb <- DBI::dbConnect(RSQLite::SQLite(), 
+                        "/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb.sqlite")
+DBI::dbWriteTable(NBAdb, "league_avg_current", lg_avg, overwrite = T)
+DBI::dbDisconnect(NBAdb)
+
 
 ### Clean Environment ----
 rm(list=ls()[! ls() %in% c("away_final_wt","home_final_wt","league_avg","standings",
                            "away_rank","home_rank","season_final","away_final","home_final")])
+
+print("Stat CleanR Complete")
