@@ -6,14 +6,16 @@ library(data.table)
 library(nbastatR)
 
 options(scipen = 999)
-yd <- as_date(Sys.Date()-1)
-# yd <- as_date("2022-10-18")
 
-plays_db <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(),
-                                      "/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb.sqlite"),"Plays")
+plays_db <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), 
+                                      "/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb.sqlite"),
+                       "Plays") %>% collect() %>% mutate(date = as_date(date, origin ="1970-01-01"))
 
-nba_plays <- plays_db %>% collect() %>% mutate(date = as_date(date, origin ="1970-01-01")) %>% filter(date == yd)
+yd <- max(plays_db$date)
+# yd <- as_date(Sys.Date()-1)
+# yd <- as_date("2022-12-17")
 
+nba_plays <- plays_db %>% filter(date == yd)
 
 dataGameLogsTeam <- game_logs(seasons = 2023, result_types = "team", season_types = "Regular Season")
 
@@ -114,6 +116,8 @@ results_book <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(),
                                 "/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb.sqlite"),
                  "ResultsBook") %>% collect() %>% mutate(date = as_date(date, origin ="1970-01-01"))
 
+# results_book <- results_book %>%
+#     filter(date >= max(date) - 20)
 
 # add wager column for calculating ml roi
 results_book <- results_book %>%
@@ -133,7 +137,7 @@ for (i in seq_along(names_spread)) {
         mutate(cume = round(cumsum(ats_result),1)) %>%
         mutate(game_num = row_number()) %>%
         mutate(roi = round((cume /(game_num*1.1))*100,2)) %>%
-        select(1:7,9)
+        select(1:7,9,8)
     
 }
 
@@ -144,7 +148,7 @@ for (j in seq_along(results_spread_list)) {
 }
 
 peak_spread <- rbindlist(peak_spread_list, fill = TRUE, idcol = F) %>%
-    select(1,7:8,5,9:16)
+    select(1,9,7:8,5,10:17)
 
 peak_spread_filtered <- peak_spread %>%
     pivot_longer(cols = !date:roi, names_to = "model", values_to = "key") %>%
@@ -166,7 +170,7 @@ for (i in seq_along(names_ml)) {
         mutate(cume = round(cumsum(ml_result),1)) %>%
         mutate(game_num = row_number()) %>%
         mutate(roi = round((cume / cumsum(ml_wager))*100,2)) %>%
-        select(1:6,8,10)
+        select(1:6,8,10,9)
     
 }
 
@@ -177,7 +181,7 @@ for (j in seq_along(results_ml_list)) {
 }
 
 peak_ml <- rbindlist(peak_ml_list, fill = TRUE, idcol = F) %>%
-    select(1,7:8,5,9:16)
+    select(1,9,7:8,5,10:17)
 
 peak_ml_filtered <- peak_ml %>%
     pivot_longer(cols = !date:roi, names_to = "model", values_to = "key") %>%
@@ -199,7 +203,7 @@ for (i in seq_along(names_over)) {
         mutate(cume = round(cumsum(over_result),1)) %>%
         mutate(game_num = row_number()) %>%
         mutate(roi = round((cume /(game_num*1.1))*100,2)) %>%
-        select(1:7,9)
+        select(1:7,9,8)
     
 }
 
@@ -210,7 +214,7 @@ for (j in seq_along(results_over_list)) {
 }
 
 peak_over <- rbindlist(peak_over_list, fill = TRUE, idcol = F) %>%
-    select(1,7:8,5,9:16)
+    select(1,9,7:8,5,10:17)
 
 peak_over_filtered <- peak_over %>%
     pivot_longer(cols = !date:roi, names_to = "model", values_to = "key") %>%
@@ -232,7 +236,7 @@ for (i in seq_along(names_under)) {
         mutate(cume = round(cumsum(under_result),1)) %>%
         mutate(game_num = row_number()) %>%
         mutate(roi = round((cume /(game_num*1.1))*100,2)) %>%
-        select(1:7,9)
+        select(1:7,9,8)
     
 }
 
@@ -243,7 +247,7 @@ for (j in seq_along(results_under_list)) {
 }
 
 peak_under <- rbindlist(peak_under_list, fill = TRUE, idcol = F) %>%
-    select(1,7:8,5,9:16)
+    select(1,9,7:8,5,10:17)
 
 peak_under_filtered <- peak_under %>%
     pivot_longer(cols = !date:roi, names_to = "model", values_to = "key") %>%
@@ -263,4 +267,7 @@ print("Results Edges Complete")
 # notes ----
 # looking great through 11/13
 # nn is unreal through 11/26
+# heidi 12/16-12/31
+# gisele 12/16-12/31
+# heidi 12/18-01/02 - spread and ML
 

@@ -14,9 +14,9 @@ results_book <- results_book %>%
 
 # fixed keys
 results_book %>%
-    filter(naomi_spread_edge >= 5.041) %>%
+    filter(heidi_spread_edge >= 0) %>%
     group_by(date) %>%
-    summarise(day_total_2022 = sum(naomi_spread_result)) %>%
+    summarise(day_total_2022 = sum(heidi_spread_result)) %>%
     mutate(cume_2022 = cumsum(day_total_2022)) %>%
     add_row(date = min(results_book$date)-1, day_total_2022 = 0, cume_2022 = 0) %>%
     arrange(date) %>%
@@ -44,9 +44,10 @@ for (i in seq_along(names_spread)) {
         mutate(roi = round((cume /(game_num*1.1))*100,2)) %>%
         mutate(model = gsub("([a-z]*)(.*)", "\\1", as.character(nms))) %>%
         mutate(type = "spread") %>%
+        mutate(wager = 1.1) %>%
         rename("edge" = as.character(nms),
                "result" = "ats_result") %>%
-        select(1:7,9,10,11)
+        select(1:7,9,10,11,12)
     
 }
 
@@ -66,8 +67,9 @@ for (i in seq_along(names_ml)) {
         mutate(model = gsub("([a-z]*)(.*)", "\\1", as.character(nms))) %>%
         mutate(type = "ml") %>%
         rename("edge" = as.character(nms),
-               "result" = "ml_result") %>%
-        select(1:6,8,10,11,12)
+               "result" = "ml_result",
+               "wager" = "ml_wager") %>%
+        select(1:6,8,10,11,12,7)
     
 }
 
@@ -86,9 +88,10 @@ for (i in seq_along(names_over)) {
         mutate(roi = round((cume /(game_num*1.1))*100,2)) %>%
         mutate(model = gsub("([a-z]*)(.*)", "\\1", as.character(nms))) %>%
         mutate(type = "over") %>%
+        mutate(wager = 1.1) %>%
         rename("edge" = as.character(nms),
                "result" = "over_result") %>%
-        select(1:7,9,10,11)
+        select(1:7,9,10,11,12)
     
 }
 
@@ -107,19 +110,42 @@ for (i in seq_along(names_under)) {
         mutate(roi = round((cume /(game_num*1.1))*100,2)) %>%
         mutate(model = gsub("([a-z]*)(.*)", "\\1", as.character(nms))) %>%
         mutate(type = "under") %>%
+        mutate(wager = 1.1) %>%
         rename("edge" = as.character(nms),
                "result" = "under_result") %>%
-        select(1:7,9,10,11)
+        select(1:7,9,10,11,12)
 }
 
 ### no keys ----
-# results_df <- rbindlist(l = c(results_spread_list, results_ml_list, results_over_list, results_under_list))
-# 
-# results_df %>%
-#     group_by(model, type) %>%
-#     summarise(across(result, sum)) %>%
-#     gt(groupname_col = "type",
-#        rowname_col = "model")
+results_df <- rbindlist(l = c(results_spread_list, results_ml_list, results_over_list, results_under_list))
+
+results_df %>%
+    group_by(model, type) %>%
+    summarise(result = sum(result), game_num = n(), wager = sum(wager)) %>%
+    mutate(roi = round((result/wager),4)) %>%
+    arrange(desc(result)) %>%
+    select(type, model, result, roi, game_num) %>%
+    gt(groupname_col = "type") %>%
+    row_group_order(groups = c("spread", "ml", "over", "under")) %>%
+    fmt_percent(columns = roi, decimals = 1) %>%
+    fmt_number(columns = result, decimals = 1) %>%
+    tab_header(
+        title = "Model Summary by Bet Type",
+        subtitle = "All Plays"
+    ) %>%
+    cols_label(
+        model = "Model",
+        result = "Units",
+        roi = "ROI",
+        game_num = "Games",
+    ) %>%
+    cols_align(
+        align = "center"
+    ) %>%
+    tab_source_note(
+        source_note = "@MambaMetrics"
+    ) %>%
+    gtExtras::gt_theme_538()
 
 
 ### use results_edges for viz
@@ -140,7 +166,7 @@ results_gt %>%
     mutate(roi = roi/100,
            type = word(model, 2, sep = "_"),
            model = gsub("([a-z]*)(.*)", "\\1", model)) %>%
-    select(type, model, cume, roi, key) %>%
+    select(type, model, cume, roi, game_num, key) %>%
     arrange(desc(cume)) %>%
     gt(groupname_col = "type") %>%
     row_group_order(groups = c("spread", "ml", "over", "under")) %>%
@@ -149,27 +175,28 @@ results_gt %>%
     fmt_number(columns = key, decimals = 2) %>%
     tab_header(
         title = "Model Summary by Bet Type",
-        subtitle = "Filtered by Model Specific Edges"
+        subtitle = "Filtered by Model Specific Keys"
     ) %>%
     cols_label(
         model = "Model",
         cume = "Units",
         roi = "ROI",
+        game_num = "Games",
         key = "Key"
     ) %>%
     cols_align(
         align = "center"
     ) %>%
     tab_source_note(
-        source_note = "Table: @MambaMetrics | Data: nba.com"
+        source_note = "@MambaMetrics"
     ) %>%
     gtExtras::gt_theme_538()
 
-# Plot: @MambaMetrics
+# Table: @MambaMetrics | Data: nba.com | Plot: @MambaMetrics
 
 ### spread line ----
 adriana_spread_line <- results_book %>%
-    filter(adriana_spread_edge >= as.numeric(viz_spread[1,5])) %>%
+    filter(adriana_spread_edge >= as.numeric(viz_spread[1,6])) %>%
     group_by(date) %>%
     summarise(day_total_2022 = sum(adriana_spread_result)) %>%
     mutate(cume_2022 = cumsum(day_total_2022)) %>%
@@ -178,7 +205,7 @@ adriana_spread_line <- results_book %>%
     mutate(model = "adriana - ensemble")
 
 chrissy_spread_line <- results_book %>%
-    filter(chrissy_spread_edge >= as.numeric(viz_spread[2,5])) %>%
+    filter(chrissy_spread_edge >= as.numeric(viz_spread[2,6])) %>%
     group_by(date) %>%
     summarise(day_total_2022 = sum(chrissy_spread_result)) %>%
     mutate(cume_2022 = cumsum(day_total_2022)) %>%
@@ -187,7 +214,7 @@ chrissy_spread_line <- results_book %>%
     mutate(model = "chrissy - knn")
 
 cindy_spread_line <- results_book %>%
-    filter(cindy_spread_edge >= as.numeric(viz_spread[3,5])) %>%
+    filter(cindy_spread_edge >= as.numeric(viz_spread[3,6])) %>%
     group_by(date) %>%
     summarise(day_total_2022 = sum(cindy_spread_result)) %>%
     mutate(cume_2022 = cumsum(day_total_2022)) %>%
@@ -196,7 +223,7 @@ cindy_spread_line <- results_book %>%
     mutate(model = "cindy - svm")
 
 gisele_spread_line <- results_book %>%
-    filter(gisele_spread_edge >= as.numeric(viz_spread[4,5])) %>%
+    filter(gisele_spread_edge >= as.numeric(viz_spread[4,6])) %>%
     group_by(date) %>%
     summarise(day_total_2022 = sum(gisele_spread_result)) %>%
     mutate(cume_2022 = cumsum(day_total_2022)) %>%
@@ -205,7 +232,7 @@ gisele_spread_line <- results_book %>%
     mutate(model = "gisele - ridge")
 
 heidi_spread_line <- results_book %>%
-    filter(heidi_spread_edge >= as.numeric(viz_spread[5,5])) %>%
+    filter(heidi_spread_edge >= as.numeric(viz_spread[5,6])) %>%
     group_by(date) %>%
     summarise(day_total_2022 = sum(heidi_spread_result)) %>%
     mutate(cume_2022 = cumsum(day_total_2022)) %>%
@@ -214,7 +241,7 @@ heidi_spread_line <- results_book %>%
     mutate(model = "heidi - xgb")
 
 kate_spread_line <- results_book %>%
-    filter(kate_spread_edge >= as.numeric(viz_spread[6,5])) %>%
+    filter(kate_spread_edge >= as.numeric(viz_spread[6,6])) %>%
     group_by(date) %>%
     summarise(day_total_2022 = sum(kate_spread_result)) %>%
     mutate(cume_2022 = cumsum(day_total_2022)) %>%
@@ -223,7 +250,7 @@ kate_spread_line <- results_book %>%
     mutate(model = "kate - rf")
 
 kendall_spread_line <- results_book %>%
-    filter(kendall_spread_edge >= as.numeric(viz_spread[7,5])) %>%
+    filter(kendall_spread_edge >= as.numeric(viz_spread[7,6])) %>%
     group_by(date) %>%
     summarise(day_total_2022 = sum(kendall_spread_result)) %>%
     mutate(cume_2022 = cumsum(day_total_2022)) %>%
@@ -232,7 +259,7 @@ kendall_spread_line <- results_book %>%
     mutate(model = "kendall - simple")
 
 naomi_spread_line <- results_book %>%
-    filter(naomi_spread_edge >= as.numeric(viz_spread[8,5])) %>%
+    filter(naomi_spread_edge >= as.numeric(viz_spread[8,6])) %>%
     group_by(date) %>%
     summarise(day_total_2022 = sum(naomi_spread_result)) %>%
     mutate(cume_2022 = cumsum(day_total_2022)) %>%
@@ -241,7 +268,7 @@ naomi_spread_line <- results_book %>%
     mutate(model = "naomi - nn")
 
 tyra_spread_line <- results_book %>%
-    filter(tyra_spread_edge >= as.numeric(viz_spread[9,5])) %>%
+    filter(tyra_spread_edge >= as.numeric(viz_spread[9,6])) %>%
     group_by(date) %>%
     summarise(day_total_2022 = sum(tyra_spread_result)) %>%
     mutate(cume_2022 = cumsum(day_total_2022)) %>%

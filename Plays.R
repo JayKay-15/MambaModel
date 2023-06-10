@@ -2,17 +2,17 @@
 
 ### Keys ----
 
-spread_model <- "naomi_spread_edge"
-spread_key <- 5.041
+spread_model <- "gisele_spread_edge"
+spread_key <- 1.310
 
-ml_model <- "cindy_ml_edge"
-ml_key <- 0.135
+ml_model <- "heidi_ml_edge"
+ml_key <- 0.062
 
-over_model <- "adriana_over_edge"
-over_key <- 2.5
+over_model <- "tyra_over_edge"
+over_key <- 1.428
 
-under_model <- "heidi_under_edge"
-under_key <- 1.00
+under_model <- "tyra_under_edge"
+under_key <- 3.209
 
 
 ### Plays ----
@@ -173,16 +173,16 @@ plays_edges <- plays %>% select(1:8,36:71)
 ### Bets ----
 plays$spread_play <- with(plays, if_else(plays[spread_model] >= spread_key, 1, 0))
 plays$ml_play <- with(plays, if_else(plays[ml_model] >= ml_key, 1, 0))
-plays$over_play <- with(plays, if_else(plays[over_model] >= over_key, 0, 0)) # not playing overs atm
+plays$over_play <- with(plays, if_else(plays[over_model] >= over_key, 1, 0))
 plays$under_play <- with(plays, if_else(plays[under_model] >= under_key, 1, 0))
 
 
 bets <- plays %>%
     filter(spread_play == 1 | ml_play == 1 | over_play == 1 | under_play == 1) %>%
-    mutate(spread_bet = if_else(spread_play == 1, naomi_spread_edge, 0)) %>% # change model here ****
-    mutate(ml_bet = if_else(ml_play == 1, cindy_spread_edge, 0)) %>% # change model here ****
-    mutate(over_bet = if_else(over_play == 1, adriana_over_edge, 0)) %>% # change model here ****
-    mutate(under_bet = if_else(under_play == 1, heidi_under_edge, 0)) %>% # change model here ****
+    mutate(spread_bet = if_else(spread_play == 1, gisele_spread_edge, 0)) %>% # change model here ****
+    mutate(ml_bet = if_else(ml_play == 1, heidi_ml_edge, 0)) %>% # change model here ****
+    mutate(over_bet = if_else(over_play == 1, tyra_over_edge, 0)) %>% # change model here ****
+    mutate(under_bet = if_else(under_play == 1, tyra_under_edge, 0)) %>% # change model here ****
     rename(spread_odds = spread, ml_odds = ml, total_odds = total) %>%
     select(1:8, 76:79) %>%
     pivot_longer(cols = 9:12, names_to = c("bet_type", ".value"),  names_sep="_") %>%
