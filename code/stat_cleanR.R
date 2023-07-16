@@ -15,7 +15,6 @@ library(progress)
 Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2)
 
 rm(list=ls())
-setwd("/Users/Jesse/Documents/MyStuff/NBA Betting/MAMBA-NBA/")
 
 ## Filter date if needed
 
@@ -884,8 +883,7 @@ lg_avg$PF <- with(lg_avg, teamPF / oPoss)
 lg_avg$eFG <- with(lg_avg, (teamFGM + .5 * team3PM) / teamFGA)
 lg_avg$TS <- with(lg_avg, teamPTS / (2 * teamFGA + .44 * teamFTA))
 
-NBAdb <- DBI::dbConnect(RSQLite::SQLite(), 
-                        "/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb.sqlite")
+NBAdb <- DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite")
 DBI::dbWriteTable(NBAdb, "league_avg_current", lg_avg, overwrite = T)
 DBI::dbDisconnect(NBAdb)
 

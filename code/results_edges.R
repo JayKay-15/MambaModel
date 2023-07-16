@@ -7,9 +7,9 @@ library(nbastatR)
 
 options(scipen = 999)
 
-plays_db <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), 
-                                      "/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb.sqlite"),
-                       "Plays") %>% collect() %>% mutate(date = as_date(date, origin ="1970-01-01"))
+plays_db <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite"), "Plays") %>%
+    collect() %>%
+    mutate(date = as_date(date, origin ="1970-01-01"))
 
 yd <- max(plays_db$date)
 # yd <- as_date(Sys.Date()-1)
@@ -103,8 +103,7 @@ results_book <- results_book %>% select(1:81, 86:121, 82:85)
 results_book
 
 ### Results Book to DB ----
-NBAdb <- DBI::dbConnect(RSQLite::SQLite(), 
-                        "/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb.sqlite")
+NBAdb <- DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite")
 
 DBI::dbWriteTable(NBAdb, "ResultsBook", results_book, append = T)
 
@@ -112,9 +111,9 @@ DBI::dbDisconnect(NBAdb)
 
 
 ### Edge Analysis ----
-results_book <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(),
-                                "/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb.sqlite"),
-                 "ResultsBook") %>% collect() %>% mutate(date = as_date(date, origin ="1970-01-01"))
+results_book <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite"), "ResultsBook") %>%
+    collect() %>%
+    mutate(date = as_date(date, origin ="1970-01-01"))
 
 # results_book <- results_book %>%
 #     filter(date >= max(date) - 20)

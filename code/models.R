@@ -30,8 +30,8 @@ game_times <- slate %>% select(2,3,5)
 
 ### Preprocessing Stats ----
 
-pre_proc_val_all <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/pre_proc_val_all.rds")
-pre_proc_val_ts <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/pre_proc_val_ts.rds")
+pre_proc_val_all <- readRDS("../NBAdb/models/pre_proc_val_all.rds")
+pre_proc_val_ts <- readRDS("../NBAdb/models/pre_proc_val_ts.rds")
 
 ### Kendall - Rating and Pythag formulas ----
 
@@ -121,9 +121,9 @@ pb <- progress_bar$new(
     total = nrow(slate), clear = FALSE, width = 60, show_after = 0)
 invisible(pb$tick(0))
 
-log_win <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/log_win_model.rds")
-lin_as <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/lin_as_model.rds")
-lin_hs <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/lin_hs_model.rds")
+log_win <- readRDS("../NBAdb/models/log_win_model.rds")
+lin_as <- readRDS("../NBAdb/models/lin_as_model.rds")
+lin_hs <- readRDS("../NBAdb/models/lin_hs_model.rds")
 
 tyra_predict <- data.frame()
 
@@ -182,9 +182,9 @@ pb <- progress_bar$new(
     total = nrow(slate), clear = FALSE, width = 60, show_after = 0)
 invisible(pb$tick(0))
 
-reg_win <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/reg_win_model.rds")
-reg_as <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/reg_as_model.rds")
-reg_hs <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/reg_hs_model.rds")
+reg_win <- readRDS("../NBAdb/models/reg_win_model.rds")
+reg_as <- readRDS("../NBAdb/models/reg_as_model.rds")
+reg_hs <- readRDS("../NBAdb/models/reg_hs_model.rds")
 
 gisele_predict <- data.frame()
 
@@ -242,9 +242,9 @@ pb <- progress_bar$new(
     total = nrow(slate), clear = FALSE, width = 60, show_after = 0)
 invisible(pb$tick(0))
 
-knn_win <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/knn_win_model.rds")
-knn_as <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/knn_as_model.rds")
-knn_hs <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/knn_hs_model.rds")
+knn_win <- readRDS("../NBAdb/models/knn_win_model.rds")
+knn_as <- readRDS("../NBAdb/models/knn_as_model.rds")
+knn_hs <- readRDS("../NBAdb/models/knn_hs_model.rds")
 
 chrissy_predict <- data.frame()
 
@@ -303,9 +303,9 @@ pb <- progress_bar$new(
     total = nrow(slate), clear = FALSE, width = 60, show_after = 0)
 invisible(pb$tick(0))
 
-rf_win <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/rf_win_model.rds")
-rf_as <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/rf_as_model.rds")
-rf_hs <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/rf_hs_model.rds")
+rf_win <- readRDS("../NBAdb/models/rf_win_model.rds")
+rf_as <- readRDS("../NBAdb/models/rf_as_model.rds")
+rf_hs <- readRDS("../NBAdb/models/rf_hs_model.rds")
 
 kate_predict <- data.frame()
 
@@ -363,9 +363,9 @@ pb <- progress_bar$new(
     total = nrow(slate), clear = FALSE, width = 60, show_after = 0)
 invisible(pb$tick(0))
 
-svm_win <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/svm_win_model.rds")
-svm_as <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/svm_as_model.rds")
-svm_hs <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/svm_hs_model.rds")
+svm_win <- readRDS("../NBAdb/models/svm_win_model.rds")
+svm_as <- readRDS("../NBAdb/models/svm_as_model.rds")
+svm_hs <- readRDS("../NBAdb/models/svm_hs_model.rds")
 
 cindy_predict <- data.frame()
 
@@ -424,9 +424,9 @@ pb <- progress_bar$new(
     total = nrow(slate), clear = FALSE, width = 60, show_after = 0)
 invisible(pb$tick(0))
 
-nn_win <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/nn_win_model.rds")
-nn_as <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/nn_as_model.rds")
-nn_hs <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/nn_hs_model.rds")
+nn_win <- readRDS("../NBAdb/models/nn_win_model.rds")
+nn_as <- readRDS("../NBAdb/models/nn_as_model.rds")
+nn_hs <- readRDS("../NBAdb/models/nn_hs_model.rds")
 
 naomi_predict <- data.frame()
 
@@ -484,9 +484,9 @@ pb <- progress_bar$new(
     total = nrow(slate), clear = FALSE, width = 60, show_after = 0)
 invisible(pb$tick(0))
 
-xgb_win <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/xgb_win_model.rds")
-xgb_as <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/xgb_as_model.rds")
-xgb_hs <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/xgb_hs_model.rds")
+xgb_win <- readRDS("../NBAdb/models/xgb_win_model.rds")
+xgb_as <- readRDS("../NBAdb/models/xgb_as_model.rds")
+xgb_hs <- readRDS("../NBAdb/models/xgb_hs_model.rds")
 
 heidi_predict <- data.frame()
 
@@ -634,8 +634,8 @@ all_models <- rbind(kendall_predict, tyra_predict, gisele_predict, chrissy_predi
 # saveRDS(score_imp, "score_imp.rds")
 # saveRDS(win_imp, "win_imp.rds")
 
-score_imp <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/score_imp.rds")
-win_imp <- readRDS("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/Models/win_imp.rds")
+score_imp <- readRDS("../NBAdb/models/score_imp.rds")
+win_imp <- readRDS("../NBAdb/models/win_imp.rds")
 
 
 ### Clean Environment ----

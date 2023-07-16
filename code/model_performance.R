@@ -4,9 +4,9 @@ library(lubridate)
 library(data.table)
 library(gt)
 
-results_book <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(),
-                                          "/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb.sqlite"),
-                           "ResultsBook") %>% collect() %>% mutate(date = as_date(date, origin ="1970-01-01"))
+results_book <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite"), "ResultsBook") %>%
+    collect() %>%
+    mutate(date = as_date(date, origin ="1970-01-01"))
 
 # add wager column for calculating ml roi
 results_book <- results_book %>%

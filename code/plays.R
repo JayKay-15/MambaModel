@@ -97,8 +97,7 @@ colnames(plays_h) <- c("game_id", "date", "loc", "opp_team", "team",
 plays_today <- bind_rows(plays_a, plays_h) %>% arrange(game_id)
 
 ### Odds ----
-odds_db <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(),
-                                      "/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb.sqlite"),"Odds")
+odds_db <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite"), "Odds")
 
 odds <- odds_db %>% 
     collect() %>% 
@@ -218,8 +217,7 @@ official_plays
 
 
 ### Plays to DB ----
-NBAdb <- DBI::dbConnect(RSQLite::SQLite(),
-                        "/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb.sqlite")
+NBAdb <- DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite")
 
 DBI::dbWriteTable(NBAdb, "Plays", plays, append = T)
 
