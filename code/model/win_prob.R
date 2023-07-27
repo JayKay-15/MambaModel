@@ -10,8 +10,9 @@ library(tidymodels)
 # pbp <- read.csv(file = "/Users/Jesse/Desktop/pbp.csv")
 
 gl_adj <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(),
-                                "/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb.sqlite"),
-                 "GameLogsAdj") %>% collect() %>% mutate(date = as_date(date, origin ="1970-01-01"))
+                                "../nba_sql_db/nba_db"), "GameLogsAdj") %>% 
+    collect() %>%
+    mutate(date = as_date(date, origin ="1970-01-01"))
 
 gm_ids <- dataGameLogsTeam %>%
     select(dateGame,idGame,nameTeam)

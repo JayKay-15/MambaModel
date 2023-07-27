@@ -7,7 +7,7 @@ library(nbastatR)
 
 options(scipen = 999)
 
-plays_db <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite"), "Plays") %>%
+plays_db <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db"), "Plays") %>%
     collect() %>%
     mutate(date = as_date(date, origin ="1970-01-01"))
 

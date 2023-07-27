@@ -42,7 +42,7 @@ hist_odds %>%
 
 
 ### Add to DB ----
-NBAdb <- DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite")
+NBAdb <- DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db")
 
 DBI::dbWriteTable(NBAdb, "Odds", hist_odds, append = T)
 

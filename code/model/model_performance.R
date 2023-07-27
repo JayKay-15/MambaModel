@@ -4,7 +4,7 @@ library(lubridate)
 library(data.table)
 library(gt)
 
-results_book <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite"), "ResultsBook") %>%
+results_book <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db"), "ResultsBook") %>%
     collect() %>%
     mutate(date = as_date(date, origin ="1970-01-01"))
 

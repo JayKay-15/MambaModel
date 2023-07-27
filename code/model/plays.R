@@ -217,7 +217,7 @@ official_plays
 
 
 ### Plays to DB ----
-NBAdb <- DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite")
+NBAdb <- DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db")
 
 DBI::dbWriteTable(NBAdb, "Plays", plays, append = T)
 

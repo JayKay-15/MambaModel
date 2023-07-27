@@ -7,7 +7,6 @@ options(dplyr.summarise.inform = FALSE)
 Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2)
 
 rm(list=ls())
-setwd("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/")
 
 fn <- "NBAdb1722_Lg_Avg"
 u <- paste0("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/",fn,".xlsx")

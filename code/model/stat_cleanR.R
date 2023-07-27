@@ -883,7 +883,7 @@ lg_avg$PF <- with(lg_avg, teamPF / oPoss)
 lg_avg$eFG <- with(lg_avg, (teamFGM + .5 * team3PM) / teamFGA)
 lg_avg$TS <- with(lg_avg, teamPTS / (2 * teamFGA + .44 * teamFTA))
 
-NBAdb <- DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite")
+NBAdb <- DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db")
 DBI::dbWriteTable(NBAdb, "league_avg_current", lg_avg, overwrite = T)
 DBI::dbDisconnect(NBAdb)
 

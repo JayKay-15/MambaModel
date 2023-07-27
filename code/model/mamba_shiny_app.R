@@ -16,13 +16,13 @@ rosters <- nbastatR::seasons_rosters(seasons = 2023)
 
 sched <- nbastatR::current_schedule()
 
-NBAdb <- DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite")
+NBAdb <- DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db")
 
-players_df_basic <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite"), "PlayerPerGame")
+players_df_basic <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db"), "PlayerPerGame")
 
-players_df_adv <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite"), "PlayerAdvanced")
+players_df_adv <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db"), "PlayerAdvanced")
 
-team_dict <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite"), "TeamDictionary")
+team_dict <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db"), "TeamDictionary")
 
 players_df_basic <- players_df_basic %>%
     collect() %>%
