@@ -103,7 +103,7 @@ results_book <- results_book %>% select(1:81, 86:121, 82:85)
 results_book
 
 ### Results Book to DB ----
-NBAdb <- DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite")
+NBAdb <- DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db")
 
 DBI::dbWriteTable(NBAdb, "ResultsBook", results_book, append = T)
 
@@ -111,7 +111,7 @@ DBI::dbDisconnect(NBAdb)
 
 
 ### Edge Analysis ----
-results_book <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../NBAdb/nba_db.sqlite"), "ResultsBook") %>%
+results_book <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db"), "ResultsBook") %>%
     collect() %>%
     mutate(date = as_date(date, origin ="1970-01-01"))
 
