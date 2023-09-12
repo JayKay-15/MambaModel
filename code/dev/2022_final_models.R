@@ -20,10 +20,8 @@ library(nnet) # nn
 
 rm(list=ls())
 
-setwd("/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/")
-
 NBAdb <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(),
-                                     "/Users/Jesse/Documents/MyStuff/NBA Betting/NBAdb/NBAdb.sqlite"),"GameLogsAdj")
+                                   "../nba_sql_db/nba_db"),"GameLogsAdj")
 
 nba <- NBAdb %>% collect() %>% mutate(date = as_date(date, origin ="1970-01-01"))
 
