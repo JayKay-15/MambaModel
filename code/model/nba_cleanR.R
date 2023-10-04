@@ -9,13 +9,14 @@ library(DBI)
 Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2)
 
 # pull game logs
-game_logs(seasons = c(2014:2023), result_types = c("team","players"))
+# game_logs(seasons = c(2014:2023), result_types = c("team","players"))
 
 dataGameLogsTeam <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"),
                         "GameLogsTeam") %>%
     collect() %>%
-    filter(yearSeason %in% c(2014:2023))
-
+    filter(yearSeason %in% c(2014:2023)) %>%
+    mutate(dateGame = as_date(dateGame, origin ="1970-01-01"))
+    
 # pull historical odds
 odds_df <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db"),
                       "odds_table") %>% 
