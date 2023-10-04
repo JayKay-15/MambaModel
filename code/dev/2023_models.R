@@ -26,7 +26,8 @@ library(DBI)
 # Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2)
 
 # pull all historical data
-nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "game_logs_adj") %>% 
+nba_final <- tbl(dbConnect(SQLite(),
+                           "../nba_sql_db/nba_db"), "game_logs_adj") %>% 
     collect() %>%
     mutate(game_date = as_date(game_date, origin ="1970-01-01"))
 
@@ -37,6 +38,7 @@ cor_train <- nba_final %>%
 cor_test <- nba_final %>%
     filter(season > 2021) %>%
     select()
+
 
 
 
