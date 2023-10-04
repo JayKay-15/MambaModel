@@ -17,7 +17,8 @@ dataGameLogsTeam <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"),
     filter(yearSeason %in% c(2014:2023))
 
 # pull historical odds
-odds_df <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "odds_table") %>% 
+odds_df <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db"),
+                      "odds_table") %>% 
     collect()
 
 # create box scores and additional stats
@@ -72,8 +73,7 @@ box_scores_opp <- box_scores %>%
            opp_id = team_id,
            opp_score = team_score) %>%
     rename_with(~paste0("opp_", .),
-                -c(game_id, opp_name, opp_id, opp_score,
-                   slugTeam, slugOpponent))
+                -c(game_id, opp_name, opp_id, opp_score, slugTeam, slugOpponent))
 
 # game by game box scores
 box_scores_gbg <- box_scores %>%
@@ -133,10 +133,11 @@ nba_league_avg <- box_scores_gbg %>%
         opp_ast_tov_pct = opp_ast/opp_tov,
         opp_stl_pct = opp_stl/poss,
         opp_blk_pct = opp_blk/(fga-fg3a),
-        opp_pf_pct = opp_pf/(poss+opp_poss),
+        opp_pf_pct = opp_pf/(poss+opp_poss)
     ) %>%
     select(
-        season,team_loc,fg2m,fg2a,fg2_pct,fg2_sr,fg3m,fg3a,fg3_pct,fg3_sr,
+        season,team_loc,team_score,opp_score,
+        fg2m,fg2a,fg2_pct,fg2_sr,fg3m,fg3a,fg3_pct,fg3_sr,
         fgm,fga,fg_pct,efg_pct,ts_pct,ftm,fta,ft_pct,ftr,oreb,oreb_pct,
         dreb,dreb_pct,treb,treb_pct,ast,ast_pct,tov,tov_pct,ast_tov_pct,
         stl,stl_pct,blk,blk_pct,pf,pf_pct,
@@ -154,7 +155,7 @@ nba_team_avg <- box_scores_gbg %>%
     arrange(game_date, game_id) %>%
     group_by(season, team_id, team_name, team_loc) %>%
     summarize(across(c(mins:opp_score, fg2m:opp_pf),
-                  \(x) mean(x))) %>%
+                     \(x) mean(x))) %>%
     ungroup() %>%
     mutate(
         poss = round(fga - oreb + tov + (0.44*fta), 0),
@@ -201,7 +202,7 @@ nba_team_avg <- box_scores_gbg %>%
         opp_pf_pct = opp_pf/(poss+opp_poss),
     ) %>%
     select(
-        season,team_id,team_name,team_loc,
+        season,team_id,team_name,team_loc,team_score,opp_score,
         fg2m,fg2a,fg2_pct,fg2_sr,fg3m,fg3a,fg3_pct,fg3_sr,
         fgm,fga,fg_pct,efg_pct,ts_pct,ftm,fta,ft_pct,ftr,oreb,oreb_pct,
         dreb,dreb_pct,treb,treb_pct,ast,ast_pct,tov,tov_pct,ast_tov_pct,
@@ -369,7 +370,7 @@ nba_final <- nba_base %>%
     left_join(nba_lag_home, by = c("game_id" = "game_id",
                                    "opp_id" = "team_id")) %>%
     na.exclude() %>%
-    select(-c(game_count:opp_score)) %>%
+    select(-c(game_count:mins)) %>%
     arrange(game_date, game_id)
 
 
