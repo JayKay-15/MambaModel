@@ -251,8 +251,7 @@ importance <- varImp(log_win, scale = F)
 print(importance)
 plot(importance)
 
-log_win_imp <- rownames_to_column(varImp(log_win, scale = F)[["importance"]],
-                                  "Var") %>%
+log_win_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
     arrange(desc(Overall)) %>%
     head(20)
 log_win_imp
@@ -348,7 +347,6 @@ plot(results_2023$cume, type = "line")
 
 
 
-
 # team score linear regression model ----
 
 # all features
@@ -396,11 +394,11 @@ lin_team <- train(team_score ~., data = train,
 
 lin_team
 summary(lin_team) # model components
-autoplot(lin_team$finalModel) # ziz - ggfortify
+autoplot(lin_team$finalModel) # viz - ggfortify
 glance(lin_team$finalModel) # entire model - tidymodels
 tidy(lin_team$finalModel) # model components - tidymodels
 augment(lin_team$finalModel) # observations - tidymodels
-# plot(lin_team$finalModel) # ziz
+# plot(lin_team$finalModel) # viz
 
 # predictions
 team_pred <- predict(lin_team, test)
@@ -419,12 +417,10 @@ importance <- varImp(lin_team, scale = F)
 print(importance)
 plot(importance)
 
-lin_team_imp <- rownames_to_column(varImp(lin_team, scale = F)[["importance"]],
-                                   "Var") %>%
+lin_team_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
     arrange(desc(Overall)) %>%
     head(20)
 lin_team_imp
-
 
 
 # opp score linear regression model ----
@@ -497,8 +493,7 @@ importance <- varImp(lin_opp, scale = F)
 print(importance)
 plot(importance)
 
-lin_opp_imp <- rownames_to_column(varImp(lin_opp, scale = F)[["importance"]],
-                                   "Var") %>%
+lin_opp_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
     arrange(desc(Overall)) %>%
     head(20)
 lin_opp_imp
