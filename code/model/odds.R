@@ -2,6 +2,7 @@
 
 library(tidyverse)
 library(lubridate)
+library(oddsapiR) # https://oddsapir.sportsdataverse.org/reference/index.html
 library(theoddsapi)
 
 Sys.setenv(THEODDS_API_KEY = "9f158680c234e152e9df4027f4eccf1f")
@@ -49,3 +50,4 @@ DBI::dbWriteTable(NBAdb, "Odds", hist_odds, append = T)
 DBI::dbDisconnect(NBAdb)
 
 print("OddsR Complete")
+
