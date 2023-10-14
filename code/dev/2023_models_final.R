@@ -5,10 +5,12 @@ library(RSQLite) # db
 library(DBI) # db
 library(caret) # model training
 library(tidymodels) # model eval
+library(ggfortify) # autoplot
+
 # library(MLeval) # model eval
 # library(pROC) # model eval
-library(ggfortify) # autoplot
-library(glmnet) # regularization
+
+# library(glmnet) # regularization
 # library(ranger) # rf
 # library(xgboost) # xgb
 # library(e1071) # svm
@@ -63,8 +65,7 @@ cor_df_new <- cor_df %>% select(-all_of(cor_cols))
 # check new set of features for correlation
 cor_mx_new <- cor(cor_df_new)
 findCorrelation(cor_mx_new, cutoff = .5)
-summary(win_mx[upper.tri(cor_mx_new)])
-
+summary(cor_mx_new[upper.tri(cor_mx_new)])
 
 # correlations - win
 model_win_all <- nba_final %>%
@@ -92,10 +93,9 @@ cor_mx <- as.matrix(cor_mx[order(abs(cor_mx[,1]), decreasing = T),])
 cor_mx
 
 # correlations - filtered variables
-cor_mx <- cor(model_win_cor, model_win_cor$team_winner)
+cor_mx <- cor(model_win, model_win$team_winner)
 cor_mx <- as.matrix(cor_mx[order(abs(cor_mx[,1]), decreasing = T),])
 cor_mx
-
 
 # correlations - team score
 model_ts_all <- nba_final %>%
@@ -126,7 +126,6 @@ cor_mx <- cor(model_ts, model_ts$team_score)
 cor_mx <- as.matrix(cor_mx[order(abs(cor_mx[,1]), decreasing = T),])
 cor_mx
 
-
 # correlations - opp score
 model_os_all <- nba_final %>%
     select(opp_score, away_implied_prob,
@@ -156,7 +155,7 @@ cor_mx <- cor(model_os, model_os$opp_score)
 cor_mx <- as.matrix(cor_mx[order(abs(cor_mx[,1]), decreasing = T),])
 cor_mx
 
-
+# clear environment ----
 rm(list=ls()[! ls() %in% c("nba_final", "cor_cols")])
 
 # team winner logistic regression model ----
@@ -244,6 +243,7 @@ roc_score <- pROC::roc(test$team_winner, away_pred, plot = T, legacy.axes = T,
                        col="#377eb8", lwd = 4, print.auc = T) # roc chart
 
 postResample(pred = pred, obs = obs) # caret eval
+log_win_metrics <- postResample(pred = pred, obs = obs)[1]
 
 # feature importance
 importance <- varImp(log_win, scale = F)
@@ -314,6 +314,7 @@ team_pred <- predict(lin_team, test)
 
 # model evaluation
 postResample(pred = team_pred, obs = test$team_score) # caret eval
+lin_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 # variable importance
 importance <- varImp(lin_team, scale = F)
@@ -384,6 +385,7 @@ opp_pred <- predict(lin_opp, test)
 
 # model evaluation
 postResample(pred = opp_pred, obs = test$opp_score) # caret eval
+lin_opp_metrics <- postResample(pred = team_pred, obs = test$opp_score)[1]
 
 # variable importance
 importance <- varImp(lin_opp, scale = F)
@@ -454,6 +456,7 @@ summary(reg_win) # model components
 confusionMatrix(reg_win) # confusion matrix
 glance(reg_win$finalModel) # entire model - tidymodels
 tidy(reg_win$finalModel) # model components - tidymodels
+plot(reg_win) # viz
 
 # predictions
 win_pred <- predict(reg_win, test, type = "prob")
@@ -483,6 +486,7 @@ roc_score <- pROC::roc(test$team_winner, away_pred, plot = T, legacy.axes = T,
                        col="#377eb8", lwd = 4, print.auc = T) # roc chart
 
 postResample(pred = pred, obs = obs) # caret eval
+reg_win_metrics <- postResample(pred = pred, obs = obs)[1]
 
 # feature importance
 importance <- varImp(reg_win, scale = F)
@@ -551,12 +555,14 @@ summary(reg_team) # model components
 autoplot(reg_team$finalModel) # viz - ggfortify
 glance(reg_team$finalModel) # entire model - tidymodels
 tidy(reg_team$finalModel) # model components - tidymodels
+plot(reg_team) # viz
 
 # predictions
 team_pred <- predict(reg_team, test)
 
 # model evaluation
 postResample(pred = team_pred, obs = test$team_score) # caret eval
+reg_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 # variable importance
 importance <- varImp(reg_team, scale = F)
@@ -625,15 +631,17 @@ summary(reg_opp) # model components
 autoplot(reg_opp$finalModel) # viz - ggfortify
 glance(reg_opp$finalModel) # entire model - tidymodels
 tidy(reg_opp$finalModel) # model components - tidymodels
+plot(reg_opp)
 
 # predictions
 opp_pred <- predict(reg_opp, test)
 
 # model evaluation
 postResample(pred = opp_pred, obs = test$opp_score) # caret eval
+reg_opp_metrics <- postResample(pred = team_pred, obs = test$opp_score)[1]
 
 # variable importance
-importance <- varImp(lin_opp, scale = F)
+importance <- varImp(reg_opp, scale = F)
 plot(importance)
 
 reg_opp_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
@@ -692,7 +700,6 @@ knn_win <- train(team_winner ~., data = train,
                  metric = "ROC",
                  trControl = ctrl,
                  tuneGrid = grid)
-
 knn_win
 knn_win$resample
 knn_win$results
@@ -729,6 +736,7 @@ roc_score <- pROC::roc(test$team_winner, away_pred, plot = T, legacy.axes = T,
                        col="#377eb8", lwd = 4, print.auc = T) # roc chart
 
 postResample(pred = pred, obs = obs) # caret eval
+knn_win_metrics <- postResample(pred = pred, obs = obs)[1]
 
 
 # team score knn model ----
@@ -790,9 +798,10 @@ team_pred <- predict(knn_team, test)
 
 # model evaluation
 postResample(pred = team_pred, obs = test$team_score) # caret eval
+knn_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 
-# opp score ridge regression model ----
+# opp score knn model ----
 
 # all features
 train <- nba_final %>%
@@ -851,6 +860,7 @@ opp_pred <- predict(knn_opp, test)
 
 # model evaluation
 postResample(pred = opp_pred, obs = test$opp_score) # caret eval
+knn_opp_metrics <- postResample(pred = team_pred, obs = test$opp_score)[1]
 
 
 # team winner random forest model ----
@@ -910,6 +920,7 @@ rf_win$resample
 rf_win$results
 summary(rf_win) # model components
 confusionMatrix(rf_win) # confusion matrix
+plot(rf_win) # viz
 
 # predictions
 win_pred <- predict(rf_win, test, type = "prob")
@@ -932,7 +943,6 @@ twoClassSummary(obs_pred, lev = levels(obs)) # roc
 prSummary(obs_pred, lev = levels(obs)) # auc
 mnLogLoss(obs_pred, lev = levels(obs)) # log loss
 
-eval <- MLeval::evalm(data.frame(win_pred, test$team_winner)) # roc chart
 roc_score <- pROC::roc(test$team_winner, away_pred, plot = T, legacy.axes = T,
                        percent = T,
                        xlab="False Positive Percentage",
@@ -940,6 +950,7 @@ roc_score <- pROC::roc(test$team_winner, away_pred, plot = T, legacy.axes = T,
                        col="#377eb8", lwd = 4, print.auc = T) # roc chart
 
 postResample(pred = pred, obs = obs) # caret eval
+rf_win_metrics <- postResample(pred = pred, obs = obs)[1]
 
 
 # team score random forest model ----
@@ -1002,6 +1013,7 @@ team_pred <- predict(rf_team, test)
 
 # model evaluation
 postResample(pred = team_pred, obs = test$team_score) # caret eval
+rf_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 
 # opp score random forest model ----
@@ -1064,9 +1076,222 @@ opp_pred <- predict(rf_opp, test)
 
 # model evaluation
 postResample(pred = opp_pred, obs = test$opp_score) # caret eval
+rf_opp_metrics <- postResample(pred = team_pred, obs = test$opp_score)[1]
 
 
+# team winner support vector machines model ----
 
+# all features
+train <- nba_final %>%
+    filter(season <= 2021) %>%
+    select(team_winner, away_implied_prob,
+           b2b_first:opp_b2b_second,
+           away_fg2m:away_fg3_pct,
+           away_fgm:away_opp_fg3_pct,
+           away_opp_fgm:away_opp_ftr,
+           away_opp_ast:away_pace,
+           home_fg2m:home_fg3_pct,
+           home_fgm:home_opp_fg3_pct,
+           home_opp_fgm:home_opp_ftr,
+           home_opp_ast:home_pace)
+
+test <- nba_final %>%
+    filter(season > 2021) %>%
+    select(team_winner, away_implied_prob,
+           b2b_first:opp_b2b_second,
+           away_fg2m:away_fg3_pct,
+           away_fgm:away_opp_fg3_pct,
+           away_opp_fgm:away_opp_ftr,
+           away_opp_ast:away_pace,
+           home_fg2m:home_fg3_pct,
+           home_fgm:home_opp_fg3_pct,
+           home_opp_fgm:home_opp_ftr,
+           home_opp_ast:home_pace)
+
+# highly correlated features removed
+train <- train %>% select(-all_of(cor_cols))
+test <- test %>% select(-all_of(cor_cols))
+
+# normalize features
+pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
+
+train[,-1] = predict(pre_proc_val, train[,-1])
+test[,-1] = predict(pre_proc_val, test[,-1])
+
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
+                     classProbs = T, summaryFunction = twoClassSummary)
+grid <- expand.grid(
+    sigma = c(0.001, 0.005, 0.01, 0.05),
+    C = c(0.1, 0.25, 0.5, 0.75)
+)
+svm_win <- train(team_winner ~., data = train,
+                 method = "svmRadial",
+                 metric = "ROC",
+                 trControl = ctrl,
+                 tuneGrid = grid)
+svm_win
+svm_win$resample
+svm_win$results
+summary(svm_win) # model components
+confusionMatrix(svm_win) # confusion matrix
+plot(svm_win) # viz
+
+# predictions
+win_pred <- predict(svm_win, test, type = "prob")
+confusionMatrix(test$team_winner,
+                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
+                       levels = c("win","loss")),
+                positive = "win")
+
+away_pred <- as.numeric(win_pred[,1])
+home_pred <- as.numeric(win_pred[,2])
+obs <- test$team_winner
+pred <- factor(ifelse(away_pred > 0.5, "win", "loss"), levels = c("win","loss"))
+obs_pred <- data.frame(obs = obs,
+                       pred = pred,
+                       win = away_pred, 
+                       loss = home_pred)
+
+# model evaluation
+twoClassSummary(obs_pred, lev = levels(obs)) # roc
+prSummary(obs_pred, lev = levels(obs)) # auc
+mnLogLoss(obs_pred, lev = levels(obs)) # log loss
+
+roc_score <- pROC::roc(test$team_winner, away_pred, plot = T, legacy.axes = T,
+                       percent = T,
+                       xlab="False Positive Percentage",
+                       ylab="True Postive Percentage",
+                       col="#377eb8", lwd = 4, print.auc = T) # roc chart
+
+postResample(pred = pred, obs = obs) # caret eval
+svm_win_metrics <- postResample(pred = pred, obs = obs)[1]
+
+
+# team score support vector machines model ----
+
+# all features
+train <- nba_final %>%
+    filter(season <= 2021) %>%
+    select(team_score, away_implied_prob,
+           b2b_first:opp_b2b_second,
+           away_fg2m:away_fg3_pct,
+           away_fgm:away_opp_fg3_pct,
+           away_opp_fgm:away_opp_ftr,
+           away_opp_ast:away_pace,
+           home_fg2m:home_fg3_pct,
+           home_fgm:home_opp_fg3_pct,
+           home_opp_fgm:home_opp_ftr,
+           home_opp_ast:home_pace)
+
+test <- nba_final %>%
+    filter(season > 2021) %>%
+    select(team_score, away_implied_prob,
+           b2b_first:opp_b2b_second,
+           away_fg2m:away_fg3_pct,
+           away_fgm:away_opp_fg3_pct,
+           away_opp_fgm:away_opp_ftr,
+           away_opp_ast:away_pace,
+           home_fg2m:home_fg3_pct,
+           home_fgm:home_opp_fg3_pct,
+           home_opp_fgm:home_opp_ftr,
+           home_opp_ast:home_pace)
+
+# highly correlated features removed
+train <- train %>% select(-all_of(cor_cols))
+test <- test %>% select(-all_of(cor_cols))
+
+# normalize features
+pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
+
+train[,-1] = predict(pre_proc_val, train[,-1])
+test[,-1] = predict(pre_proc_val, test[,-1])
+
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    sigma = c(0.005, 0.01, 0.05),
+    C = c(0.25, 0.5)
+)
+svm_team <- train(team_score ~., data = train,
+                  method = "svmRadial",
+                  trControl = ctrl,
+                  tuneGrid = grid)
+svm_team
+svm_team$resample
+svm_team$results
+summary(svm_team) # model components
+plot(svm_team) # viz
+
+# predictions
+team_pred <- predict(svm_team, test)
+
+# model evaluation
+postResample(pred = team_pred, obs = test$team_score) # caret eval
+svm_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
+
+
+# opp score support vector machines model ----
+
+# all features
+train <- nba_final %>%
+    filter(season <= 2021) %>%
+    select(opp_score, away_implied_prob,
+           b2b_first:opp_b2b_second,
+           away_fg2m:away_fg3_pct,
+           away_fgm:away_opp_fg3_pct,
+           away_opp_fgm:away_opp_ftr,
+           away_opp_ast:away_pace,
+           home_fg2m:home_fg3_pct,
+           home_fgm:home_opp_fg3_pct,
+           home_opp_fgm:home_opp_ftr,
+           home_opp_ast:home_pace)
+
+test <- nba_final %>%
+    filter(season > 2021) %>%
+    select(opp_score, away_implied_prob,
+           b2b_first:opp_b2b_second,
+           away_fg2m:away_fg3_pct,
+           away_fgm:away_opp_fg3_pct,
+           away_opp_fgm:away_opp_ftr,
+           away_opp_ast:away_pace,
+           home_fg2m:home_fg3_pct,
+           home_fgm:home_opp_fg3_pct,
+           home_opp_fgm:home_opp_ftr,
+           home_opp_ast:home_pace)
+
+# highly correlated features removed
+train <- train %>% select(-all_of(cor_cols))
+test <- test %>% select(-all_of(cor_cols))
+
+# normalize features
+pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
+
+train[,-1] = predict(pre_proc_val, train[,-1])
+test[,-1] = predict(pre_proc_val, test[,-1])
+
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    sigma = c(0.005, 0.01, 0.05),
+    C = c(0.25, 0.5)
+)
+svm_opp <- train(opp_score ~., data = train,
+                 method = "svmRadial",
+                 trControl = ctrl,
+                 tuneGrid = grid)
+svm_opp
+svm_opp$resample
+svm_opp$results
+summary(svm_opp) # model components
+plot(svm_opp) # viz
+
+# predictions
+team_pred <- predict(svm_opp, test)
+
+# model evaluation
+postResample(pred = team_pred, obs = test$opp_score) # caret eval
+svm_opp_metrics <- postResample(pred = team_pred, obs = test$opp_score)[1]
 
 
 
