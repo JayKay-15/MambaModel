@@ -259,96 +259,6 @@ log_win_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
 log_win_imp
 
 
-# results testing ----
-
-results <- bind_cols(nba_final %>%
-                         filter(season > 2021) %>%
-                         select(season,game_id,
-                                away_moneyline,home_moneyline),
-                     obs_pred)
-
-
-results <- results %>%
-    mutate(
-        away_odds = if_else(away_moneyline<0,
-                            (-away_moneyline/(-away_moneyline+100)),
-                            (100/(away_moneyline+100))),
-        home_odds = if_else(home_moneyline<0,
-                            (-home_moneyline/(-home_moneyline+100)),
-                            (100/(home_moneyline+100))),
-        away_edge = if_else(win - away_odds > 0, 1, 0),
-        home_edge = if_else(loss - home_odds > 0, 1, 0),
-        away_ml_win = if_else(away_moneyline > 0, away_moneyline/100, 1),
-        home_ml_win = if_else(home_moneyline > 0, home_moneyline/100, 1),
-        away_ml_loss = if_else(away_moneyline < 0, (away_moneyline/100), -1),
-        home_ml_loss = if_else(home_moneyline < 0, (home_moneyline/100), -1),
-        bet_result = case_when(away_edge == 1 & obs == "win" ~ away_ml_win,
-                         home_edge == 1 & obs == "loss" ~ home_ml_win,
-                         away_edge == 1 & obs == "loss" ~ away_ml_loss,
-                         home_edge == 1 & obs == "win" ~ home_ml_loss,
-                         TRUE ~ 0),
-        cume = cumsum(bet_result)
-    )
-
-
-results_2022 <- results %>%
-    filter(season == 2022) %>%
-    mutate(
-        away_odds = if_else(away_moneyline<0,
-                            (-away_moneyline/(-away_moneyline+100)),
-                            (100/(away_moneyline+100))),
-        home_odds = if_else(home_moneyline<0,
-                            (-home_moneyline/(-home_moneyline+100)),
-                            (100/(home_moneyline+100))),
-        away_edge = if_else(win - away_odds > 0, 1, 0),
-        home_edge = if_else(loss - home_odds > 0, 1, 0),
-        away_ml_win = if_else(away_moneyline > 0, away_moneyline/100, 1),
-        home_ml_win = if_else(home_moneyline > 0, home_moneyline/100, 1),
-        away_ml_loss = if_else(away_moneyline < 0, (away_moneyline/100), -1),
-        home_ml_loss = if_else(home_moneyline < 0, (home_moneyline/100), -1),
-        bet_result = case_when(away_edge == 1 & obs == "win" ~ away_ml_win,
-                               home_edge == 1 & obs == "loss" ~ home_ml_win,
-                               away_edge == 1 & obs == "loss" ~ away_ml_loss,
-                               home_edge == 1 & obs == "win" ~ home_ml_loss,
-                               TRUE ~ 0),
-        cume = cumsum(bet_result)
-    )
-
-max(results_2022$cume)
-tail(results_2022$cume, 1)
-plot(results_2022$cume, type = "line")
-
-
-results_2023 <- results %>%
-    filter(season == 2023) %>%
-    mutate(
-        away_odds = if_else(away_moneyline<0,
-                            (-away_moneyline/(-away_moneyline+100)),
-                            (100/(away_moneyline+100))),
-        home_odds = if_else(home_moneyline<0,
-                            (-home_moneyline/(-home_moneyline+100)),
-                            (100/(home_moneyline+100))),
-        away_edge = if_else(win - away_odds > 0, 1, 0),
-        home_edge = if_else(loss - home_odds > 0, 1, 0),
-        away_ml_win = if_else(away_moneyline > 0, away_moneyline/100, 1),
-        home_ml_win = if_else(home_moneyline > 0, home_moneyline/100, 1),
-        away_ml_loss = if_else(away_moneyline < 0, (away_moneyline/100), -1),
-        home_ml_loss = if_else(home_moneyline < 0, (home_moneyline/100), -1),
-        bet_result = case_when(away_edge == 1 & obs == "win" ~ away_ml_win,
-                               home_edge == 1 & obs == "loss" ~ home_ml_win,
-                               away_edge == 1 & obs == "loss" ~ away_ml_loss,
-                               home_edge == 1 & obs == "win" ~ home_ml_loss,
-                               TRUE ~ 0),
-        cume = cumsum(bet_result)
-    )
-
-max(results_2023$cume)
-tail(results_2023$cume, 1)
-plot(results_2023$cume, type = "line")
-
-
-
-
 # team score linear regression model ----
 
 # all features
@@ -1765,6 +1675,7 @@ nn_win$resample
 nn_win$results
 summary(nn_win) # model components
 confusionMatrix(nn_win) # confusion matrix
+plot(nn_win) # viz
 
 # predictions
 win_pred <- predict(nn_win, test, type = "prob")
@@ -1966,6 +1877,96 @@ nn_opp_imp
 
 
 
+
+
+
+
+# results testing ----
+
+results <- bind_cols(nba_final %>%
+                         filter(season > 2021) %>%
+                         select(season,game_id,
+                                away_moneyline,home_moneyline),
+                     obs_pred)
+
+
+results <- results %>%
+    mutate(
+        away_odds = if_else(away_moneyline<0,
+                            (-away_moneyline/(-away_moneyline+100)),
+                            (100/(away_moneyline+100))),
+        home_odds = if_else(home_moneyline<0,
+                            (-home_moneyline/(-home_moneyline+100)),
+                            (100/(home_moneyline+100))),
+        away_edge = if_else(win - away_odds > 0, 1, 0),
+        home_edge = if_else(loss - home_odds > 0, 1, 0),
+        away_ml_win = if_else(away_moneyline > 0, away_moneyline/100, 1),
+        home_ml_win = if_else(home_moneyline > 0, home_moneyline/100, 1),
+        away_ml_loss = if_else(away_moneyline < 0, (away_moneyline/100), -1),
+        home_ml_loss = if_else(home_moneyline < 0, (home_moneyline/100), -1),
+        bet_result = case_when(away_edge == 1 & obs == "win" ~ away_ml_win,
+                               home_edge == 1 & obs == "loss" ~ home_ml_win,
+                               away_edge == 1 & obs == "loss" ~ away_ml_loss,
+                               home_edge == 1 & obs == "win" ~ home_ml_loss,
+                               TRUE ~ 0),
+        cume = cumsum(bet_result)
+    )
+
+
+results_2022 <- results %>%
+    filter(season == 2022) %>%
+    mutate(
+        away_odds = if_else(away_moneyline<0,
+                            (-away_moneyline/(-away_moneyline+100)),
+                            (100/(away_moneyline+100))),
+        home_odds = if_else(home_moneyline<0,
+                            (-home_moneyline/(-home_moneyline+100)),
+                            (100/(home_moneyline+100))),
+        away_edge = if_else(win - away_odds > 0, 1, 0),
+        home_edge = if_else(loss - home_odds > 0, 1, 0),
+        away_ml_win = if_else(away_moneyline > 0, away_moneyline/100, 1),
+        home_ml_win = if_else(home_moneyline > 0, home_moneyline/100, 1),
+        away_ml_loss = if_else(away_moneyline < 0, (away_moneyline/100), -1),
+        home_ml_loss = if_else(home_moneyline < 0, (home_moneyline/100), -1),
+        bet_result = case_when(away_edge == 1 & obs == "win" ~ away_ml_win,
+                               home_edge == 1 & obs == "loss" ~ home_ml_win,
+                               away_edge == 1 & obs == "loss" ~ away_ml_loss,
+                               home_edge == 1 & obs == "win" ~ home_ml_loss,
+                               TRUE ~ 0),
+        cume = cumsum(bet_result)
+    )
+
+max(results_2022$cume)
+tail(results_2022$cume, 1)
+plot(results_2022$cume, type = "line")
+
+
+results_2023 <- results %>%
+    filter(season == 2023) %>%
+    mutate(
+        away_odds = if_else(away_moneyline<0,
+                            (-away_moneyline/(-away_moneyline+100)),
+                            (100/(away_moneyline+100))),
+        home_odds = if_else(home_moneyline<0,
+                            (-home_moneyline/(-home_moneyline+100)),
+                            (100/(home_moneyline+100))),
+        away_edge = if_else(win - away_odds > 0, 1, 0),
+        home_edge = if_else(loss - home_odds > 0, 1, 0),
+        away_ml_win = if_else(away_moneyline > 0, away_moneyline/100, 1),
+        home_ml_win = if_else(home_moneyline > 0, home_moneyline/100, 1),
+        away_ml_loss = if_else(away_moneyline < 0, (away_moneyline/100), -1),
+        home_ml_loss = if_else(home_moneyline < 0, (home_moneyline/100), -1),
+        bet_result = case_when(away_edge == 1 & obs == "win" ~ away_ml_win,
+                               home_edge == 1 & obs == "loss" ~ home_ml_win,
+                               away_edge == 1 & obs == "loss" ~ away_ml_loss,
+                               home_edge == 1 & obs == "win" ~ home_ml_loss,
+                               TRUE ~ 0),
+        cume = cumsum(bet_result)
+    )
+
+max(results_2023$cume)
+tail(results_2023$cume, 1)
+plot(results_2023$cume, type = "line")
 
 
 
