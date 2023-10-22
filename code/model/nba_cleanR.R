@@ -1,6 +1,5 @@
 ### stat cleanR ----
 library(tidyverse)
-library(lubridate)
 library(nbastatR)
 library(RSQLite)
 library(DBI)
@@ -401,10 +400,10 @@ colnames(standings) <- c("team","conference","division","record",
 
 asc_cols <- names(nba_team_avg %>%
                       select(tov,tov_pct,
-                             opp_fg2m:opp_ast_pct,opp_ast_tov_pct:opp_blk_pct))
+                             opp_fg2m:opp_ast_pct,opp_ast_tov_pct:opp_pf_pct))
 
 desc_cols <- names(nba_team_avg %>%
-                       select(fg2m:ast_pct,ast_tov_pct:blk_pct,
+                       select(fg2m:ast_pct,ast_tov_pct:pf_pct,
                               opp_tov:opp_tov_pct))
 
 rankings <- nba_team_avg %>%
