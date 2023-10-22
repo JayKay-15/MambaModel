@@ -1,7 +1,6 @@
 ### OddsR ----
 
 library(tidyverse)
-library(lubridate)
 library(oddsapiR) # https://oddsapir.sportsdataverse.org/reference/index.html
 library(theoddsapi)
 
