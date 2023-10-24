@@ -1,7 +1,6 @@
 ### Results Book ----
 
 library(tidyverse)
-library(lubridate)
 library(data.table)
 library(nbastatR)
 
