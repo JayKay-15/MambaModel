@@ -35,9 +35,8 @@ nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_stats") %>%
            team_winner = if_else(team_winner == "W", "win", "loss"),
            team_winner = factor(team_winner, levels = c("win", "loss")))
 
-set.seed(214)
-
 # correlations ----
+set.seed(214)
 
 # feature correlations
 cor_df <- nba_final %>%
@@ -133,166 +132,23 @@ cor_mx
 # clear environment ----
 rm(list=ls()[! ls() %in% c("nba_final", "cor_cols")])
 
-# team winner logistic regression model ----
-
+# team winner models ----
 # all features
 train <- nba_final %>%
+    filter(season_year <= 2021) %>%
     select(team_winner, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
            away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
-# highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-
-# normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
-
-train[,-1] = predict(pre_proc_val, train[,-1])
-
-# model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
-                     classProbs = T, summaryFunction = twoClassSummary)
-log_win <- train(team_winner ~., data = train,
-                 trControl = ctrl,
-                 method = "glm",
-                 metric = "ROC",
-                 family = "binomial")
-
-saveRDS(log_win, "../NBAdb/models/log_win_2023.rds")
-
-log_win
-log_win$resample
-log_win$results
-summary(log_win) # model components
-confusionMatrix(log_win) # confusion matrix
-glance(log_win$finalModel) # entire model - tidymodels
-tidy(log_win$finalModel) # model components - tidymodels
-augment(log_win$finalModel) # observations - tidymodels
-
-# feature importance
-importance <- varImp(log_win, scale = F)
-plot(importance)
-
-log_win_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
-    arrange(desc(Overall)) %>%
-    head(20)
-log_win_imp
-
-
-# team score linear regression model ----
-
-# all features
-train <- nba_final %>%
-    select(team_score, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
-           away_fgm:home_opp_pct_uast_fgm) %>%
-    select(-contains("_rating"))
-
-# highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-
-# normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
-
-train[,-1] = predict(pre_proc_val, train[,-1])
-
-# model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
-lin_team <- train(team_score ~., data = train,
-                  trControl = ctrl,
-                  method = "lm")
-
-saveRDS(log_win, "../NBAdb/models/lin_team_2023.rds")
-
-lin_team
-lin_team$resample
-lin_team$results
-summary(lin_team) # model components
-autoplot(lin_team$finalModel) # viz - ggfortify
-glance(lin_team$finalModel) # entire model - tidymodels
-tidy(lin_team$finalModel) # model components - tidymodels
-augment(lin_team$finalModel) # observations - tidymodels
-
-# variable importance
-importance <- varImp(lin_team, scale = F)
-plot(importance)
-
-lin_team_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
-    arrange(desc(Overall)) %>%
-    head(20)
-lin_team_imp
-
-
-# opp score linear regression model ----
-
-# all features
-train <- nba_final %>%
-    select(opp_score, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
-           away_fgm:home_opp_pct_uast_fgm) %>%
-    select(-contains("_rating"))
-
-# highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-
-# normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
-
-train[,-1] = predict(pre_proc_val, train[,-1])
-
-# model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
-lin_opp <- train(opp_score ~., data = train,
-                 trControl = ctrl,
-                 method = "lm")
-
-saveRDS(log_win, "../NBAdb/models/lin_opp_2023.rds")
-
-lin_opp
-lin_opp$resample
-lin_opp$results
-summary(lin_opp) # model components
-autoplot(lin_opp$finalModel) # viz - ggfortify
-glance(lin_opp$finalModel) # entire model - tidymodels
-tidy(lin_opp$finalModel) # model components - tidymodels
-augment(lin_opp$finalModel) # observations - tidymodels
-
-# variable importance
-importance <- varImp(lin_opp, scale = F)
-plot(importance)
-
-lin_opp_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
-    arrange(desc(Overall)) %>%
-    head(20)
-lin_opp_imp
-
-
-# team winner ridge regression model ----
-
-# all features
-train <- nba_final %>%
-    filter(season <= 2021) %>%
-    select(team_winner, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
 test <- nba_final %>%
-    filter(season > 2021) %>%
-    select(team_winner, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
+    filter(season_year > 2021) %>%
+    select(team_winner, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
+           away_fgm:home_opp_pct_uast_fgm) %>%
+    select(-contains("_rating"))
+
+model_outputs <- nba_final %>%
+    filter(season_year > 2021) %>%
+    select(season_year:home_implied_prob)
 
 # highly correlated features removed
 train <- train %>% select(-all_of(cor_cols))
@@ -304,6 +160,29 @@ pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
 train[,-1] = predict(pre_proc_val, train[,-1])
 test[,-1] = predict(pre_proc_val, test[,-1])
 
+
+# team winner logistic regression model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
+                     classProbs = T, summaryFunction = twoClassSummary)
+
+log_win <- train(team_winner ~., data = train,
+                 trControl = ctrl,
+                 method = "glm",
+                 metric = "ROC",
+                 family = "binomial")
+
+saveRDS(log_win, "../NBAdb/models/models_2021/log_win_2021.rds")
+
+# predictions
+win_pred <- predict(log_win, test, type = "prob")
+
+model_outputs <- model_outputs %>%
+    mutate(log_win_away = as.numeric(win_pred[,1]),
+           log_win_home = as.numeric(win_pred[,2]))
+
+
+# team winner ridge regression model ----
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
                      classProbs = T, summaryFunction = twoClassSummary)
@@ -317,246 +196,17 @@ reg_win <- train(team_winner ~., data = train,
                  trControl = ctrl,
                  tuneGrid = grid)
 
-reg_win
-reg_win$resample
-reg_win$results
-summary(reg_win) # model components
-confusionMatrix(reg_win) # confusion matrix
-glance(reg_win$finalModel) # entire model - tidymodels
-tidy(reg_win$finalModel) # model components - tidymodels
-plot(reg_win) # viz
+saveRDS(reg_win, "../NBAdb/models/models_2021/reg_win_2021.rds")
 
 # predictions
 win_pred <- predict(reg_win, test, type = "prob")
-confusionMatrix(test$team_winner,
-                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
-                       levels = c("win","loss")),
-                positive = "win")
 
-away_pred <- as.numeric(win_pred[,1])
-home_pred <- as.numeric(win_pred[,2])
-obs <- test$team_winner
-pred <- factor(ifelse(away_pred > 0.5, "win", "loss"), levels = c("win","loss"))
-obs_pred <- data.frame(obs = obs,
-                       pred = pred,
-                       win = away_pred, 
-                       loss = home_pred)
-
-# model evaluation
-twoClassSummary(obs_pred, lev = levels(obs)) # roc
-prSummary(obs_pred, lev = levels(obs)) # auc
-mnLogLoss(obs_pred, lev = levels(obs)) # log loss
-
-roc_score <- pROC::roc(test$team_winner, away_pred, plot = T, legacy.axes = T,
-                       percent = T,
-                       xlab="False Positive Percentage",
-                       ylab="True Postive Percentage",
-                       col="#377eb8", lwd = 4, print.auc = T) # roc chart
-
-postResample(pred = pred, obs = obs) # caret eval
-reg_win_metrics <- postResample(pred = pred, obs = obs)[1]
-
-# feature importance
-importance <- varImp(reg_win, scale = F)
-plot(importance)
-
-reg_win_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
-    arrange(desc(Overall)) %>%
-    head(20)
-reg_win_imp
-
-
-# team score ridge regression model ----
-
-# all features
-train <- nba_final %>%
-    filter(season <= 2021) %>%
-    select(team_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-test <- nba_final %>%
-    filter(season > 2021) %>%
-    select(team_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-# highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-test <- test %>% select(-all_of(cor_cols))
-
-# normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
-
-train[,-1] = predict(pre_proc_val, train[,-1])
-test[,-1] = predict(pre_proc_val, test[,-1])
-
-# model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
-grid <- expand.grid(
-    alpha = 0, 
-    lambda = 10^seq(2, -3, by = -.1)
-)
-reg_team <- train(team_score ~., data = train,
-                  method = "glmnet",
-                  trControl = ctrl,
-                  tuneGrid = grid)
-
-reg_team
-reg_team$resample
-reg_team$results
-summary(reg_team) # model components
-autoplot(reg_team$finalModel) # viz - ggfortify
-glance(reg_team$finalModel) # entire model - tidymodels
-tidy(reg_team$finalModel) # model components - tidymodels
-plot(reg_team) # viz
-
-# predictions
-team_pred <- predict(reg_team, test)
-
-# model evaluation
-postResample(pred = team_pred, obs = test$team_score) # caret eval
-reg_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
-
-# variable importance
-importance <- varImp(reg_team, scale = F)
-plot(importance)
-
-reg_team_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
-    arrange(desc(Overall)) %>%
-    head(20)
-reg_team_imp
-
-
-# opp score ridge regression model ----
-
-# all features
-train <- nba_final %>%
-    filter(season <= 2021) %>%
-    select(opp_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-test <- nba_final %>%
-    filter(season > 2021) %>%
-    select(opp_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-# highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-test <- test %>% select(-all_of(cor_cols))
-
-# normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
-
-train[,-1] = predict(pre_proc_val, train[,-1])
-test[,-1] = predict(pre_proc_val, test[,-1])
-
-# model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
-grid <- expand.grid(
-    alpha = 0, 
-    lambda = 10^seq(2, -3, by = -.1)
-)
-reg_opp <- train(opp_score ~., data = train,
-                 method = "glmnet",
-                 trControl = ctrl,
-                 tuneGrid = grid)
-
-reg_opp
-reg_opp$resample
-reg_opp$results
-summary(reg_opp) # model components
-autoplot(reg_opp$finalModel) # viz - ggfortify
-glance(reg_opp$finalModel) # entire model - tidymodels
-tidy(reg_opp$finalModel) # model components - tidymodels
-plot(reg_opp)
-
-# predictions
-opp_pred <- predict(reg_opp, test)
-
-# model evaluation
-postResample(pred = opp_pred, obs = test$opp_score) # caret eval
-reg_opp_metrics <- postResample(pred = team_pred, obs = test$opp_score)[1]
-
-# variable importance
-importance <- varImp(reg_opp, scale = F)
-plot(importance)
-
-reg_opp_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
-    arrange(desc(Overall)) %>%
-    head(20)
-reg_opp_imp
+model_outputs <- model_outputs %>%
+    mutate(reg_win_away = as.numeric(win_pred[,1]),
+           reg_win_home = as.numeric(win_pred[,2]))
 
 
 # team winner knn model ----
-
-# all features
-train <- nba_final %>%
-    filter(season <= 2021) %>%
-    select(team_winner, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-test <- nba_final %>%
-    filter(season > 2021) %>%
-    select(team_winner, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-# highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-test <- test %>% select(-all_of(cor_cols))
-
-# normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
-
-train[,-1] = predict(pre_proc_val, train[,-1])
-test[,-1] = predict(pre_proc_val, test[,-1])
-
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
                      classProbs = T, summaryFunction = twoClassSummary)
@@ -568,208 +218,18 @@ knn_win <- train(team_winner ~., data = train,
                  metric = "ROC",
                  trControl = ctrl,
                  tuneGrid = grid)
-knn_win
-knn_win$resample
-knn_win$results
-summary(knn_win) # model components
-confusionMatrix(knn_win) # confusion matrix
-plot(knn_win)
+
+saveRDS(knn_win, "../NBAdb/models/models_2021/knn_win_2021.rds")
 
 # predictions
 win_pred <- predict(knn_win, test, type = "prob")
-confusionMatrix(test$team_winner,
-                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
-                       levels = c("win","loss")),
-                positive = "win")
 
-away_pred <- as.numeric(win_pred[,1])
-home_pred <- as.numeric(win_pred[,2])
-obs <- test$team_winner
-pred <- factor(ifelse(away_pred > 0.5, "win", "loss"), levels = c("win","loss"))
-obs_pred <- data.frame(obs = obs,
-                       pred = pred,
-                       win = away_pred, 
-                       loss = home_pred)
-
-# model evaluation
-twoClassSummary(obs_pred, lev = levels(obs)) # roc
-prSummary(obs_pred, lev = levels(obs)) # auc
-mnLogLoss(obs_pred, lev = levels(obs)) # log loss
-
-eval <- MLeval::evalm(data.frame(win_pred, test$team_winner)) # roc chart
-roc_score <- pROC::roc(test$team_winner, away_pred, plot = T, legacy.axes = T,
-                       percent = T,
-                       xlab="False Positive Percentage",
-                       ylab="True Postive Percentage",
-                       col="#377eb8", lwd = 4, print.auc = T) # roc chart
-
-postResample(pred = pred, obs = obs) # caret eval
-knn_win_metrics <- postResample(pred = pred, obs = obs)[1]
-
-
-# team score knn model ----
-
-# all features
-train <- nba_final %>%
-    filter(season <= 2021) %>%
-    select(team_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-test <- nba_final %>%
-    filter(season > 2021) %>%
-    select(team_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-# highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-test <- test %>% select(-all_of(cor_cols))
-
-# normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
-
-train[,-1] = predict(pre_proc_val, train[,-1])
-test[,-1] = predict(pre_proc_val, test[,-1])
-
-# model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
-grid <- expand.grid(
-    k = seq(2, 50, 2)
-)
-knn_team <- train(team_score ~., data = train, 
-                  method = "knn",
-                  trControl = ctrl,
-                  tuneGrid = grid)
-knn_team
-knn_team$results
-knn_team$resample
-summary(knn_team) # model components
-plot(knn_team) # viz
-
-# predictions
-team_pred <- predict(knn_team, test)
-
-# model evaluation
-postResample(pred = team_pred, obs = test$team_score) # caret eval
-knn_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
-
-
-# opp score knn model ----
-
-# all features
-train <- nba_final %>%
-    filter(season <= 2021) %>%
-    select(opp_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-test <- nba_final %>%
-    filter(season > 2021) %>%
-    select(opp_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-# highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-test <- test %>% select(-all_of(cor_cols))
-
-# normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
-
-train[,-1] = predict(pre_proc_val, train[,-1])
-test[,-1] = predict(pre_proc_val, test[,-1])
-
-# model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
-grid <- expand.grid(
-    k = seq(2, 50, 2)
-)
-knn_opp <- train(opp_score ~., data = train, 
-                 method = "knn",
-                 trControl = ctrl,
-                 tuneGrid = grid)
-knn_opp
-knn_opp$results
-knn_opp$resample
-summary(knn_opp) # model components
-plot(knn_opp) # viz
-
-# predictions
-opp_pred <- predict(knn_opp, test)
-
-# model evaluation
-postResample(pred = opp_pred, obs = test$opp_score) # caret eval
-knn_opp_metrics <- postResample(pred = team_pred, obs = test$opp_score)[1]
+model_outputs <- model_outputs %>%
+    mutate(knn_win_away = as.numeric(win_pred[,1]),
+           knn_win_home = as.numeric(win_pred[,2]))
 
 
 # team winner random forest model ----
-
-# all features
-train <- nba_final %>%
-    filter(season <= 2021) %>%
-    select(team_winner, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-test <- nba_final %>%
-    filter(season > 2021) %>%
-    select(team_winner, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-# highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-test <- test %>% select(-all_of(cor_cols))
-
-# normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
-
-train[,-1] = predict(pre_proc_val, train[,-1])
-test[,-1] = predict(pre_proc_val, test[,-1])
-
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
                      classProbs = T, summaryFunction = twoClassSummary)
@@ -783,209 +243,18 @@ rf_win <- train(team_winner ~., data = train,
                 metric = "ROC",
                 trControl = ctrl,
                 tuneGrid = grid)
-rf_win
-rf_win$resample
-rf_win$results
-summary(rf_win) # model components
-confusionMatrix(rf_win) # confusion matrix
-plot(rf_win) # viz
+
+saveRDS(rf_win, "../NBAdb/models/models_2021/rf_win_2021.rds")
 
 # predictions
 win_pred <- predict(rf_win, test, type = "prob")
-confusionMatrix(test$team_winner,
-                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
-                       levels = c("win","loss")),
-                positive = "win")
 
-away_pred <- as.numeric(win_pred[,1])
-home_pred <- as.numeric(win_pred[,2])
-obs <- test$team_winner
-pred <- factor(ifelse(away_pred > 0.5, "win", "loss"), levels = c("win","loss"))
-obs_pred <- data.frame(obs = obs,
-                       pred = pred,
-                       win = away_pred, 
-                       loss = home_pred)
-
-# model evaluation
-twoClassSummary(obs_pred, lev = levels(obs)) # roc
-prSummary(obs_pred, lev = levels(obs)) # auc
-mnLogLoss(obs_pred, lev = levels(obs)) # log loss
-
-roc_score <- pROC::roc(test$team_winner, away_pred, plot = T, legacy.axes = T,
-                       percent = T,
-                       xlab="False Positive Percentage",
-                       ylab="True Postive Percentage",
-                       col="#377eb8", lwd = 4, print.auc = T) # roc chart
-
-postResample(pred = pred, obs = obs) # caret eval
-rf_win_metrics <- postResample(pred = pred, obs = obs)[1]
-
-
-# team score random forest model ----
-
-# all features
-train <- nba_final %>%
-    filter(season <= 2021) %>%
-    select(team_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-test <- nba_final %>%
-    filter(season > 2021) %>%
-    select(team_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-# highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-test <- test %>% select(-all_of(cor_cols))
-
-# normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
-
-train[,-1] = predict(pre_proc_val, train[,-1])
-test[,-1] = predict(pre_proc_val, test[,-1])
-
-# model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
-grid <- expand.grid(
-    .mtry = seq(2, 18, 2),
-    .splitrule = "variance",
-    .min.node.size = 1
-)
-rf_team <- train(team_score ~., data = train,
-                 method = "ranger",
-                 trControl = ctrl,
-                 tuneGrid = grid)
-rf_team
-rf_team$resample
-rf_team$results
-plot(rf_team) # viz
-
-# predictions
-team_pred <- predict(rf_team, test)
-
-# model evaluation
-postResample(pred = team_pred, obs = test$team_score) # caret eval
-rf_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
-
-
-# opp score random forest model ----
-
-# all features
-train <- nba_final %>%
-    filter(season <= 2021) %>%
-    select(opp_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-test <- nba_final %>%
-    filter(season > 2021) %>%
-    select(opp_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-# highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-test <- test %>% select(-all_of(cor_cols))
-
-# normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
-
-train[,-1] = predict(pre_proc_val, train[,-1])
-test[,-1] = predict(pre_proc_val, test[,-1])
-
-# model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
-grid <- expand.grid(
-    .mtry = seq(2, 18, 2),
-    .splitrule = "variance",
-    .min.node.size = 1
-)
-rf_opp <- train(opp_score ~., data = train,
-                method = "ranger",
-                trControl = ctrl,
-                tuneGrid = grid)
-rf_opp
-rf_opp$resample
-rf_opp$results
-plot(rf_opp) # viz
-
-# predictions
-opp_pred <- predict(rf_opp, test)
-
-# model evaluation
-postResample(pred = opp_pred, obs = test$opp_score) # caret eval
-rf_opp_metrics <- postResample(pred = team_pred, obs = test$opp_score)[1]
+model_outputs <- model_outputs %>%
+    mutate(rf_win_away = as.numeric(win_pred[,1]),
+           rf_win_home = as.numeric(win_pred[,2]))
 
 
 # team winner support vector machines model ----
-
-# all features
-train <- nba_final %>%
-    filter(season <= 2021) %>%
-    select(team_winner, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-test <- nba_final %>%
-    filter(season > 2021) %>%
-    select(team_winner, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-# highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-test <- test %>% select(-all_of(cor_cols))
-
-# normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
-
-train[,-1] = predict(pre_proc_val, train[,-1])
-test[,-1] = predict(pre_proc_val, test[,-1])
-
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
                      classProbs = T, summaryFunction = twoClassSummary)
@@ -998,209 +267,17 @@ svm_win <- train(team_winner ~., data = train,
                  metric = "ROC",
                  trControl = ctrl,
                  tuneGrid = grid)
-svm_win
-svm_win$resample
-svm_win$results
-summary(svm_win) # model components
-confusionMatrix(svm_win) # confusion matrix
-plot(svm_win) # viz
+
+saveRDS(svm_win, "../NBAdb/models/models_2021/svm_win_2021.rds")
 
 # predictions
 win_pred <- predict(svm_win, test, type = "prob")
-confusionMatrix(test$team_winner,
-                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
-                       levels = c("win","loss")),
-                positive = "win")
 
-away_pred <- as.numeric(win_pred[,1])
-home_pred <- as.numeric(win_pred[,2])
-obs <- test$team_winner
-pred <- factor(ifelse(away_pred > 0.5, "win", "loss"), levels = c("win","loss"))
-obs_pred <- data.frame(obs = obs,
-                       pred = pred,
-                       win = away_pred, 
-                       loss = home_pred)
-
-# model evaluation
-twoClassSummary(obs_pred, lev = levels(obs)) # roc
-prSummary(obs_pred, lev = levels(obs)) # auc
-mnLogLoss(obs_pred, lev = levels(obs)) # log loss
-
-roc_score <- pROC::roc(test$team_winner, away_pred, plot = T, legacy.axes = T,
-                       percent = T,
-                       xlab="False Positive Percentage",
-                       ylab="True Postive Percentage",
-                       col="#377eb8", lwd = 4, print.auc = T) # roc chart
-
-postResample(pred = pred, obs = obs) # caret eval
-svm_win_metrics <- postResample(pred = pred, obs = obs)[1]
-
-
-# team score support vector machines model ----
-
-# all features
-train <- nba_final %>%
-    filter(season <= 2021) %>%
-    select(team_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-test <- nba_final %>%
-    filter(season > 2021) %>%
-    select(team_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-# highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-test <- test %>% select(-all_of(cor_cols))
-
-# normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
-
-train[,-1] = predict(pre_proc_val, train[,-1])
-test[,-1] = predict(pre_proc_val, test[,-1])
-
-# model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
-grid <- expand.grid(
-    sigma = c(0.005, 0.01, 0.05),
-    C = c(0.25, 0.5)
-)
-svm_team <- train(team_score ~., data = train,
-                  method = "svmRadial",
-                  trControl = ctrl,
-                  tuneGrid = grid)
-svm_team
-svm_team$resample
-svm_team$results
-summary(svm_team) # model components
-plot(svm_team) # viz
-
-# predictions
-team_pred <- predict(svm_team, test)
-
-# model evaluation
-postResample(pred = team_pred, obs = test$team_score) # caret eval
-svm_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
-
-
-# opp score support vector machines model ----
-
-# all features
-train <- nba_final %>%
-    filter(season <= 2021) %>%
-    select(opp_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-test <- nba_final %>%
-    filter(season > 2021) %>%
-    select(opp_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-# highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-test <- test %>% select(-all_of(cor_cols))
-
-# normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
-
-train[,-1] = predict(pre_proc_val, train[,-1])
-test[,-1] = predict(pre_proc_val, test[,-1])
-
-# model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
-grid <- expand.grid(
-    sigma = c(0.005, 0.01, 0.05),
-    C = c(0.25, 0.5)
-)
-svm_opp <- train(opp_score ~., data = train,
-                 method = "svmRadial",
-                 trControl = ctrl,
-                 tuneGrid = grid)
-svm_opp
-svm_opp$resample
-svm_opp$results
-summary(svm_opp) # model components
-plot(svm_opp) # viz
-
-# predictions
-team_pred <- predict(svm_opp, test)
-
-# model evaluation
-postResample(pred = team_pred, obs = test$opp_score) # caret eval
-svm_opp_metrics <- postResample(pred = team_pred, obs = test$opp_score)[1]
-
+model_outputs <- model_outputs %>%
+    mutate(svm_win_away = as.numeric(win_pred[,1]),
+           svm_win_home = as.numeric(win_pred[,2]))
 
 # team winner neural net model ----
-
-# all features
-train <- nba_final %>%
-    filter(season <= 2021) %>%
-    select(team_winner, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-test <- nba_final %>%
-    filter(season > 2021) %>%
-    select(team_winner, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
-
-# highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-test <- test %>% select(-all_of(cor_cols))
-
-# normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
-
-train[,-1] = predict(pre_proc_val, train[,-1])
-test[,-1] = predict(pre_proc_val, test[,-1])
-
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
                      classProbs = T, summaryFunction = twoClassSummary)
@@ -1213,80 +290,63 @@ nn_win <- train(team_winner ~., data = train,
                 metric = "ROC",
                 trControl = ctrl,
                 tuneGrid = grid)
-nn_win
-nn_win$resample
-nn_win$results
-summary(nn_win) # model components
-confusionMatrix(nn_win) # confusion matrix
-plot(nn_win) # viz
+
+saveRDS(nn_win, "../NBAdb/models/models_2021/nn_win_2021.rds")
 
 # predictions
 win_pred <- predict(nn_win, test, type = "prob")
-confusionMatrix(test$team_winner,
-                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
-                       levels = c("win","loss")),
-                positive = "win")
 
-away_pred <- as.numeric(win_pred[,1])
-home_pred <- as.numeric(win_pred[,2])
-obs <- test$team_winner
-pred <- factor(ifelse(away_pred > 0.5, "win", "loss"), levels = c("win","loss"))
-obs_pred <- data.frame(obs = obs,
-                       pred = pred,
-                       win = away_pred, 
-                       loss = home_pred)
-
-# model evaluation
-twoClassSummary(obs_pred, lev = levels(obs)) # roc
-prSummary(obs_pred, lev = levels(obs)) # auc
-mnLogLoss(obs_pred, lev = levels(obs)) # log loss
-
-roc_score <- pROC::roc(test$team_winner, away_pred, plot = T, legacy.axes = T,
-                       percent = T,
-                       xlab="False Positive Percentage",
-                       ylab="True Postive Percentage",
-                       col="#377eb8", lwd = 4, print.auc = T) # roc chart
-
-postResample(pred = pred, obs = obs) # caret eval
-
-# feature importance
-importance <- varImp(nn_win, scale = F)
-plot(importance)
-
-nn_win_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
-    arrange(desc(Overall)) %>%
-    head(20)
-nn_win_imp
+model_outputs <- model_outputs %>%
+    mutate(nn_win_away = as.numeric(win_pred[,1]),
+           nn_win_home = as.numeric(win_pred[,2]))
 
 
-# team score neural net model ----
+# team winner extreme gradient boosting model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
+                     classProbs = T, summaryFunction = twoClassSummary)
+grid <- expand.grid(
+    nrounds = seq(300, 800, 100),
+    eta = c(0.015, 0.025, 0.035),
+    max_depth = c(1,2,3),
+    gamma = c(1,2,3,4),
+    colsample_bytree = seq(0.5, 0.9, 0.1),
+    min_child_weight = 1,
+    subsample = seq(0.5, 0.8, 0.1)
+)
+xgb_win <- train(team_winner ~., data = train,
+                 method = "xgbTree",
+                 metric = "ROC",
+                 trControl = ctrl,
+                 tuneGrid = grid)
 
+saveRDS(xgb_win, "../NBAdb/models/models_2021/xgb_win_2021.rds")
+
+# predictions
+win_pred <- predict(xgb_win, test, type = "prob")
+
+model_outputs <- model_outputs %>%
+    mutate(xgb_win_away = as.numeric(win_pred[,1]),
+           xgb_win_home = as.numeric(win_pred[,2]))
+
+
+# team score models ----
 # all features
 train <- nba_final %>%
-    filter(season <= 2021) %>%
-    select(team_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
+    filter(season_year <= 2021) %>%
+    select(team_score, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
+           away_fgm:home_opp_pct_uast_fgm) %>%
+    select(-contains("_rating"))
 
 test <- nba_final %>%
-    filter(season > 2021) %>%
-    select(team_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
+    filter(season_year > 2021) %>%
+    select(team_score, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
+           away_fgm:home_opp_pct_uast_fgm) %>%
+    select(-contains("_rating"))
+
+model_outputs <- nba_final %>%
+    filter(season_year > 2021) %>%
+    select(season_year:home_implied_prob)
 
 # highly correlated features removed
 train <- train %>% select(-all_of(cor_cols))
@@ -1298,6 +358,103 @@ pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
 train[,-1] = predict(pre_proc_val, train[,-1])
 test[,-1] = predict(pre_proc_val, test[,-1])
 
+
+# team score linear regression model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+lin_team <- train(team_score ~., data = train,
+                  trControl = ctrl,
+                  method = "lm")
+
+saveRDS(nn_win, "../NBAdb/models/models_2021/lin_team_2021.rds")
+
+# predictions
+team_pred <- predict(lin_team, test)
+model_outputs <- model_outputs %>%
+    mutate(lin_team_score = as.numeric(team_pred))
+
+
+# team score ridge regression model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    alpha = 0, 
+    lambda = 10^seq(2, -3, by = -.1)
+)
+reg_team <- train(team_score ~., data = train,
+                  method = "glmnet",
+                  trControl = ctrl,
+                  tuneGrid = grid)
+
+saveRDS(nn_win, "../NBAdb/models/models_2021/reg_team_2021.rds")
+
+# predictions
+team_pred <- predict(reg_team, test)
+model_outputs <- model_outputs %>%
+    mutate(reg_team_score = as.numeric(team_pred))
+
+
+# team score knn model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    k = seq(2, 50, 2)
+)
+knn_team <- train(team_score ~., data = train, 
+                  method = "knn",
+                  trControl = ctrl,
+                  tuneGrid = grid)
+
+saveRDS(nn_win, "../NBAdb/models/models_2021/knn_team_2021.rds")
+
+# predictions
+team_pred <- predict(knn_team, test)
+model_outputs <- model_outputs %>%
+    mutate(knn_team_score = as.numeric(team_pred))
+
+
+# team score random forest model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    .mtry = seq(2, 18, 2),
+    .splitrule = "variance",
+    .min.node.size = 1
+)
+rf_team <- train(team_score ~., data = train,
+                 method = "ranger",
+                 trControl = ctrl,
+                 tuneGrid = grid)
+
+saveRDS(rf_team, "../NBAdb/models/models_2021/rf_team_2021.rds")
+
+# predictions
+team_pred <- predict(rf_team, test)
+model_outputs <- model_outputs %>%
+    mutate(rf_team_score = as.numeric(team_pred))
+
+
+# team score support vector machines model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    sigma = c(0.005, 0.01, 0.05),
+    C = c(0.25, 0.5)
+)
+svm_team <- train(team_score ~., data = train,
+                  method = "svmRadial",
+                  trControl = ctrl,
+                  tuneGrid = grid)
+
+saveRDS(svm_team, "../NBAdb/models/models_2021/svm_team_2021.rds")
+
+# predictions
+team_pred <- predict(svm_team, test)
+model_outputs <- model_outputs %>%
+    mutate(svm_team_score = as.numeric(team_pred))
+
+
+# team score neural net model ----
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
 grid <- expand.grid(
@@ -1309,56 +466,57 @@ nn_team <- train(team_score ~., data = train,
                  trControl = ctrl,
                  tuneGrid = grid,
                  linout = 1)
-nn_team
-nn_team$resample
-nn_team$results
-summary(nn_team) # model components
-plot(nn_team) # viz
+
+saveRDS(nn_team, "../NBAdb/models/models_2021/nn_team_2021.rds")
 
 # predictions
 team_pred <- predict(nn_team, test)
-
-# model evaluation
-postResample(pred = team_pred, obs = test$team_score) # caret eval
-
-# variable importance
-importance <- varImp(nn_team, scale = F)
-plot(importance)
-
-nn_team_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
-    arrange(desc(Overall)) %>%
-    head(20)
-nn_team_imp
+model_outputs <- model_outputs %>%
+    mutate(nn_team_score = as.numeric(team_pred))
 
 
-# opp score neural net model ----
+# team score extreme gradient boosting model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    nrounds = seq(300,800,50),
+    eta = c(0.015, 0.025, 0.035),
+    max_depth = c(1,2,3),
+    gamma = c(1,2,3,4),
+    colsample_bytree = seq(0.5, 0.9, 0.1),
+    min_child_weight = 1,
+    subsample = seq(0.5, 0.8, 0.1)
+)
+xgb_team <- train(team_score ~., data = train,
+                  method = "xgbTree",
+                  trControl = ctrl,
+                  tuneGrid = grid)
 
+saveRDS(xgb_team, "../NBAdb/models/models_2021/xgb_team_2021.rds")
+
+# predictions
+team_pred <- predict(xgb_team, test)
+model_outputs <- model_outputs %>%
+    mutate(xgb_team_score = as.numeric(team_pred))
+
+
+# opp score models ----
 # all features
 train <- nba_final %>%
-    filter(season <= 2021) %>%
-    select(opp_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
+    filter(season_year <= 2021) %>%
+    select(opp_score, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
+           away_fgm:home_opp_pct_uast_fgm) %>%
+    select(-contains("_rating"))
 
 test <- nba_final %>%
-    filter(season > 2021) %>%
-    select(opp_score, away_implied_prob,
-           b2b_first:opp_b2b_second,
-           away_fg2m:away_fg3_pct,
-           away_fgm:away_opp_fg3_pct,
-           away_opp_fgm:away_opp_ftr,
-           away_opp_ast:away_pace,
-           home_fg2m:home_fg3_pct,
-           home_fgm:home_opp_fg3_pct,
-           home_opp_fgm:home_opp_ftr,
-           home_opp_ast:home_pace)
+    filter(season_year > 2021) %>%
+    select(opp_score, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
+           away_fgm:home_opp_pct_uast_fgm) %>%
+    select(-contains("_rating"))
+
+model_outputs <- nba_final %>%
+    filter(season_year > 2021) %>%
+    select(season_year:home_implied_prob)
 
 # highly correlated features removed
 train <- train %>% select(-all_of(cor_cols))
@@ -1370,6 +528,103 @@ pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
 train[,-1] = predict(pre_proc_val, train[,-1])
 test[,-1] = predict(pre_proc_val, test[,-1])
 
+
+# opp score linear regression model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+lin_opp <- train(opp_score ~., data = train,
+                 trControl = ctrl,
+                 method = "lm")
+
+saveRDS(lin_opp, "../NBAdb/models/models_2021/lin_opp_2021.rds")
+
+# predictions
+opp_pred <- predict(lin_opp, test)
+model_outputs <- model_outputs %>%
+    mutate(lin_opp_score = as.numeric(opp_pred))
+
+
+# opp score ridge regression model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    alpha = 0, 
+    lambda = 10^seq(2, -3, by = -.1)
+)
+reg_opp <- train(opp_score ~., data = train,
+                 method = "glmnet",
+                 trControl = ctrl,
+                 tuneGrid = grid)
+
+saveRDS(reg_opp, "../NBAdb/models/models_2021/reg_opp_2021.rds")
+
+# predictions
+opp_pred <- predict(reg_opp, test)
+model_outputs <- model_outputs %>%
+    mutate(reg_opp_score = as.numeric(opp_pred))
+
+
+# opp score knn model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    k = seq(2, 50, 2)
+)
+knn_opp <- train(opp_score ~., data = train, 
+                 method = "knn",
+                 trControl = ctrl,
+                 tuneGrid = grid)
+
+saveRDS(knn_opp, "../NBAdb/models/models_2021/knn_opp_2021.rds")
+
+# predictions
+opp_pred <- predict(knn_opp, test)
+model_outputs <- model_outputs %>%
+    mutate(knn_opp_score = as.numeric(opp_pred))
+
+
+# opp score random forest model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    .mtry = seq(2, 18, 2),
+    .splitrule = "variance",
+    .min.node.size = 1
+)
+rf_opp <- train(opp_score ~., data = train,
+                method = "ranger",
+                trControl = ctrl,
+                tuneGrid = grid)
+
+saveRDS(rf_opp, "../NBAdb/models/models_2021/rf_opp_2021.rds")
+
+# predictions
+opp_pred <- predict(rf_opp, test)
+model_outputs <- model_outputs %>%
+    mutate(rf_opp_score = as.numeric(opp_pred))
+
+
+# opp score support vector machines model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    sigma = c(0.005, 0.01, 0.05),
+    C = c(0.25, 0.5)
+)
+svm_opp <- train(opp_score ~., data = train,
+                 method = "svmRadial",
+                 trControl = ctrl,
+                 tuneGrid = grid)
+
+saveRDS(svm_opp, "../NBAdb/models/models_2021/svm_opp_2021.rds")
+
+# predictions
+opp_pred <- predict(svm_opp, test)
+model_outputs <- model_outputs %>%
+    mutate(svm_opp_score = as.numeric(opp_pred))
+
+
+# opp score neural net model ----
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
 grid <- expand.grid(
@@ -1381,30 +636,38 @@ nn_opp <- train(opp_score ~., data = train,
                 trControl = ctrl,
                 tuneGrid = grid,
                 linout = 1)
-nn_opp
-nn_opp$resample
-nn_opp$results
-summary(nn_opp) # model components
-plot(nn_opp) # viz
+
+saveRDS(nn_opp, "../NBAdb/models/models_2021/nn_opp_2021.rds")
 
 # predictions
-team_pred <- predict(nn_opp, test)
-
-# model evaluation
-postResample(pred = team_pred, obs = test$opp_score) # caret eval
-
-# variable importance
-importance <- varImp(nn_opp, scale = F)
-plot(importance)
-
-nn_opp_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
-    arrange(desc(Overall)) %>%
-    head(20)
-nn_opp_imp
+opp_pred <- predict(nn_opp, test)
+model_outputs <- model_outputs %>%
+    mutate(nn_opp_score = as.numeric(opp_pred))
 
 
+# opp score extreme gradient boosting model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    nrounds = seq(300,800,50),
+    eta = c(0.015, 0.025, 0.035),
+    max_depth = c(1,2,3),
+    gamma = c(1,2,3,4),
+    colsample_bytree = seq(0.5, 0.9, 0.1),
+    min_child_weight = 1,
+    subsample = seq(0.5, 0.8, 0.1)
+)
+xgb_opp <- train(opp_score ~., data = train,
+                 method = "xgbTree",
+                 trControl = ctrl,
+                 tuneGrid = grid)
 
+saveRDS(xgb_opp, "../NBAdb/models/models_2021/xgb_opp_2021.rds")
 
+# predictions
+opp_pred <- predict(xgb_opp, test)
+model_outputs <- model_outputs %>%
+    mutate(xgb_opp_score = as.numeric(opp_pred))
 
 
 
