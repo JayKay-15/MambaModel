@@ -25,9 +25,25 @@ library(ggfortify) # autoplot
 
 # Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2)
 
+save.image(file='model_training_2021.RData')
+
 # pull all historical data
 nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_stats") %>%
     collect() %>%
+    rename(team_winner = wl,
+           team_score = pts,
+           opp_score = opp_pts) %>%
+    mutate(game_date = as_date(game_date, origin ="1970-01-01"),
+           team_winner = if_else(team_winner == "W", "win", "loss"),
+           team_winner = factor(team_winner, levels = c("win", "loss")))
+
+
+nba_final <- read_rds("../NBAdb/mamba_stats_w5.rds")
+nba_final <- read_rds("../NBAdb/mamba_stats_w10.rds")
+nba_final <- read_rds("../NBAdb/mamba_stats_w15.rds")
+nba_final <- read_rds("../NBAdb/mamba_stats_w20.rds")
+
+nba_final <- nba_final %>%
     rename(team_winner = wl,
            team_score = pts,
            opp_score = opp_pts) %>%
