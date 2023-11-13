@@ -435,8 +435,6 @@ nba_schedule_current <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"),
     collect() %>%
     mutate(game_date = as_date(game_date, origin ="1970-01-01"))
 
-
-
 generate_headers <- function() {
     headers <- c(
         `Sec-Fetch-Site` = "same-site",
@@ -565,7 +563,12 @@ mamba_nba_cleanR <- function(seasons) {
         rename_with(~paste0("opp_", .), -c(game_id)) %>%
         select(-opp_plus_minus)
     
-    min_games <- min(team_games$game_count_season)
+    min_games <- min(team_all_stats %>%
+        select(team_name, location) %>%
+        group_by(team_name, location) %>%
+        tally() %>%
+        ungroup() %>%
+        select(n))
     
     nba_final <- team_all_stats %>%
         inner_join(opp_all_stats, by = c("game_id"), relationship = "many-to-many") %>%
@@ -590,6 +593,10 @@ mamba_nba_cleanR <- function(seasons) {
 }
 
 nba_final <- mamba_nba_cleanR(2024)
+
+
+
+
 
 log_win <- read_rds("../NBAdb/models/log_win_2023.rds")
 
