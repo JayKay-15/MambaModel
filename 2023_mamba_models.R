@@ -25,6 +25,8 @@ library(ggfortify) # autoplot
 
 # Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2)
 
+# https://www.kaggle.com/code/pelkoja/visual-xgboost-tuning-with-caret/report
+
 save.image(file='model_training_2021.RData')
 
 # pull all historical data
@@ -43,7 +45,15 @@ nba_final <- read_rds("../NBAdb/mamba_stats_w10.rds")
 nba_final <- read_rds("../NBAdb/mamba_stats_w15.rds")
 nba_final <- read_rds("../NBAdb/mamba_stats_w20.rds")
 
+saveRDS(model_outputs, "./backest_output/model_outputs_w5.rds")
+saveRDS(model_outputs, "./backest_output/model_outputs_w10.rds")
+saveRDS(model_outputs, "./backest_output/model_outputs_w15.rds")
+saveRDS(model_outputs, "./backest_output/model_outputs_w20.rds")
+
+model_outputs <- read_rds("./backest_output/model_outputs_w5.rds")
+
 nba_final <- nba_final %>%
+    filter(season_year >= 2019) %>%
     rename(team_winner = wl,
            team_score = pts,
            opp_score = opp_pts) %>%
@@ -316,25 +326,25 @@ model_outputs <- model_outputs %>%
     mutate(nn_win_away = as.numeric(win_pred[,1]),
            nn_win_home = as.numeric(win_pred[,2]))
 
-
 # team winner extreme gradient boosting model ----
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
                      classProbs = T, summaryFunction = twoClassSummary)
 grid <- expand.grid(
-    nrounds = seq(300, 800, 100),
-    eta = c(0.015, 0.025, 0.035),
-    max_depth = c(1,2,3),
-    gamma = c(1,2,3,4),
-    colsample_bytree = seq(0.5, 0.9, 0.1),
-    min_child_weight = 1,
-    subsample = seq(0.5, 0.8, 0.1)
+    nrounds = xgb_tune$bestTune$nrounds,
+    eta = xgb_tune$bestTune$eta,
+    max_depth = xgb_tune$bestTune$max_depth,
+    gamma = xgb_tune$bestTune$gamma,
+    colsample_bytree = xgb_tune$bestTune$colsample_bytree,
+    min_child_weight = xgb_tune$bestTune$min_child_weight,
+    subsample = xgb_tune$bestTune$subsample
 )
 xgb_win <- train(team_winner ~., data = train,
                  method = "xgbTree",
                  metric = "ROC",
                  trControl = ctrl,
                  tuneGrid = grid)
+xgb_tune <- xgb_win
 
 saveRDS(xgb_win, "../NBAdb/models/models_2021/xgb_win_2021.rds")
 
