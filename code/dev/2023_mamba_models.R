@@ -27,8 +27,6 @@ library(ggfortify) # autoplot
 
 # https://www.kaggle.com/code/pelkoja/visual-xgboost-tuning-with-caret/report
 
-save.image(file='model_training_2021.RData')
-
 # pull all historical data
 nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_stats") %>%
     collect() %>%
@@ -40,17 +38,17 @@ nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_stats") %>%
            team_winner = factor(team_winner, levels = c("win", "loss")))
 
 
-nba_final <- read_rds("../NBAdb/mamba_stats_w5.rds")
-nba_final <- read_rds("../NBAdb/mamba_stats_w10.rds")
-nba_final <- read_rds("../NBAdb/mamba_stats_w15.rds")
+# nba_final <- read_rds("../NBAdb/mamba_stats_w5.rds")
+# nba_final <- read_rds("../NBAdb/mamba_stats_w10.rds")
+# nba_final <- read_rds("../NBAdb/mamba_stats_w15.rds")
 nba_final <- read_rds("../NBAdb/mamba_stats_w20.rds")
 
-saveRDS(model_outputs, "./backest_output/model_outputs_w5.rds")
-saveRDS(model_outputs, "./backest_output/model_outputs_w10.rds")
-saveRDS(model_outputs, "./backest_output/model_outputs_w15.rds")
+# saveRDS(model_outputs, "./backest_output/model_outputs_w5.rds")
+# saveRDS(model_outputs, "./backest_output/model_outputs_w10.rds")
+# saveRDS(model_outputs, "./backest_output/model_outputs_w15.rds")
 saveRDS(model_outputs, "./backest_output/model_outputs_w20.rds")
 
-model_outputs <- read_rds("./backest_output/model_outputs_w5.rds")
+# model_outputs <- read_rds("./backest_output/model_outputs_w10.rds")
 
 nba_final <- nba_final %>%
     filter(season_year >= 2019) %>%
@@ -346,6 +344,15 @@ xgb_win <- train(team_winner ~., data = train,
                  tuneGrid = grid)
 xgb_tune <- xgb_win
 
+# helper function for the plots
+tuneplot <- function(x, probs = .90) {
+    ggplot(x) +
+        coord_cartesian(ylim = c(quantile(x$results$ROC, probs = probs), min(x$results$ROC))) +
+        theme_bw()
+}
+
+tuneplot(xgb_tune)
+
 saveRDS(xgb_win, "../NBAdb/models/models_2021/xgb_win_2021.rds")
 
 # predictions
@@ -370,9 +377,9 @@ test <- nba_final %>%
            away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
-model_outputs <- nba_final %>%
-    filter(season_year > 2021) %>%
-    select(season_year:home_implied_prob)
+# model_outputs <- nba_final %>%
+#     filter(season_year > 2021) %>%
+#     select(season_year:home_implied_prob)
 
 # highly correlated features removed
 train <- train %>% select(-all_of(cor_cols))
@@ -392,7 +399,7 @@ lin_team <- train(team_score ~., data = train,
                   trControl = ctrl,
                   method = "lm")
 
-saveRDS(nn_win, "../NBAdb/models/models_2021/lin_team_2021.rds")
+saveRDS(lin_team, "../NBAdb/models/models_2021/lin_team_2021.rds")
 
 # predictions
 team_pred <- predict(lin_team, test)
@@ -412,7 +419,7 @@ reg_team <- train(team_score ~., data = train,
                   trControl = ctrl,
                   tuneGrid = grid)
 
-saveRDS(nn_win, "../NBAdb/models/models_2021/reg_team_2021.rds")
+saveRDS(reg_team, "../NBAdb/models/models_2021/reg_team_2021.rds")
 
 # predictions
 team_pred <- predict(reg_team, test)
@@ -431,7 +438,7 @@ knn_team <- train(team_score ~., data = train,
                   trControl = ctrl,
                   tuneGrid = grid)
 
-saveRDS(nn_win, "../NBAdb/models/models_2021/knn_team_2021.rds")
+saveRDS(knn_team, "../NBAdb/models/models_2021/knn_team_2021.rds")
 
 # predictions
 team_pred <- predict(knn_team, test)
@@ -505,18 +512,28 @@ model_outputs <- model_outputs %>%
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
 grid <- expand.grid(
-    nrounds = seq(300,800,50),
-    eta = c(0.015, 0.025, 0.035),
-    max_depth = c(1,2,3),
-    gamma = c(1,2,3,4),
-    colsample_bytree = seq(0.5, 0.9, 0.1),
-    min_child_weight = 1,
-    subsample = seq(0.5, 0.8, 0.1)
+    nrounds = xgb_tune$bestTune$nrounds,
+    eta = xgb_tune$bestTune$eta,
+    max_depth = xgb_tune$bestTune$max_depth,
+    gamma = xgb_tune$bestTune$gamma,
+    colsample_bytree = xgb_tune$bestTune$colsample_bytree,
+    min_child_weight = xgb_tune$bestTune$min_child_weight,
+    subsample = xgb_tune$bestTune$subsample
 )
 xgb_team <- train(team_score ~., data = train,
                   method = "xgbTree",
                   trControl = ctrl,
                   tuneGrid = grid)
+xgb_tune <- xgb_team
+
+# helper function for the plots
+tuneplot <- function(x, probs = .90) {
+    ggplot(x) +
+        coord_cartesian(ylim = c(quantile(x$results$RMSE, probs = probs), min(x$results$RMSE))) +
+        theme_bw()
+}
+
+tuneplot(xgb_tune)
 
 saveRDS(xgb_team, "../NBAdb/models/models_2021/xgb_team_2021.rds")
 
@@ -540,9 +557,9 @@ test <- nba_final %>%
            away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
-model_outputs <- nba_final %>%
-    filter(season_year > 2021) %>%
-    select(season_year:home_implied_prob)
+# model_outputs <- nba_final %>%
+#     filter(season_year > 2021) %>%
+#     select(season_year:home_implied_prob)
 
 # highly correlated features removed
 train <- train %>% select(-all_of(cor_cols))
@@ -675,18 +692,28 @@ model_outputs <- model_outputs %>%
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
 grid <- expand.grid(
-    nrounds = seq(300,800,50),
-    eta = c(0.015, 0.025, 0.035),
-    max_depth = c(1,2,3),
-    gamma = c(1,2,3,4),
-    colsample_bytree = seq(0.5, 0.9, 0.1),
-    min_child_weight = 1,
-    subsample = seq(0.5, 0.8, 0.1)
+    nrounds = xgb_tune$bestTune$nrounds,
+    eta = xgb_tune$bestTune$eta,
+    max_depth = xgb_tune$bestTune$max_depth,
+    gamma = xgb_tune$bestTune$gamma,
+    colsample_bytree = xgb_tune$bestTune$colsample_bytree,
+    min_child_weight = xgb_tune$bestTune$min_child_weight,
+    subsample = xgb_tune$bestTune$subsample
 )
 xgb_opp <- train(opp_score ~., data = train,
                  method = "xgbTree",
                  trControl = ctrl,
                  tuneGrid = grid)
+xgb_tune <- xgb_opp
+
+# helper function for the plots
+tuneplot <- function(x, probs = .90) {
+    ggplot(x) +
+        coord_cartesian(ylim = c(quantile(x$results$RMSE, probs = probs), min(x$results$RMSE))) +
+        theme_bw()
+}
+
+tuneplot(xgb_tune)
 
 saveRDS(xgb_opp, "../NBAdb/models/models_2021/xgb_opp_2021.rds")
 
@@ -694,6 +721,143 @@ saveRDS(xgb_opp, "../NBAdb/models/models_2021/xgb_opp_2021.rds")
 opp_pred <- predict(xgb_opp, test)
 model_outputs <- model_outputs %>%
     mutate(xgb_opp_score = as.numeric(opp_pred))
+
+
+
+
+
+
+grid <- expand.grid(
+    nrounds = seq(200, 1000, 50),
+    eta = c(0.025, 0.05, 0.1, 0.3),
+    max_depth = c(2, 3, 4, 5, 6),
+    gamma = 0,
+    colsample_bytree = 1,
+    min_child_weight = 1,
+    subsample = 1
+)
+
+grid <- expand.grid(
+    nrounds = seq(50, 1000, 50),
+    eta = xgb_tune$bestTune$eta,
+    max_depth = c(2, 3, 4, 5, 6),
+    gamma = 0,
+    colsample_bytree = 1,
+    min_child_weight = c(1, 2, 3),
+    subsample = 1
+)
+
+grid <- expand.grid(
+    nrounds = seq(50, 1000, 50),
+    eta = xgb_tune$bestTune$eta,
+    max_depth = xgb_tune$bestTune$max_depth,
+    gamma = 0,
+    colsample_bytree = c(0.4, 0.6, 0.8, 1.0),
+    min_child_weight = xgb_tune$bestTune$min_child_weight,
+    subsample = c(0.5, 0.75, 1.0)
+)
+
+grid <- expand.grid(
+    nrounds = seq(50, 1000, 50),
+    eta = xgb_tune$bestTune$eta,
+    max_depth = xgb_tune$bestTune$max_depth,
+    gamma = c(0, 0.05, 0.1, 0.5, 0.7, 0.9, 1.0),
+    colsample_bytree = xgb_tune$bestTune$colsample_bytree,
+    min_child_weight = xgb_tune$bestTune$min_child_weight,
+    subsample = xgb_tune$bestTune$subsample
+)
+
+grid <- expand.grid(
+    nrounds = seq(100, 10000, 100),
+    eta = c(0.01, 0.015, 0.025, 0.05, 0.1),
+    max_depth = xgb_tune$bestTune$max_depth,
+    gamma = xgb_tune$bestTune$gamma,
+    colsample_bytree = xgb_tune$bestTune$colsample_bytree,
+    min_child_weight = xgb_tune$bestTune$min_child_weight,
+    subsample = xgb_tune$bestTune$subsample
+)
+
+grid <- expand.grid(
+    nrounds = xgb_tune$bestTune$nrounds,
+    eta = xgb_tune$bestTune$eta,
+    max_depth = xgb_tune$bestTune$max_depth,
+    gamma = xgb_tune$bestTune$gamma,
+    colsample_bytree = xgb_tune$bestTune$colsample_bytree,
+    min_child_weight = xgb_tune$bestTune$min_child_weight,
+    subsample = xgb_tune$bestTune$subsample
+)
+
+
+
+
+model_outputs <- read_rds("./backest_output/model_outputs_w15.rds")
+
+model_outputs <- model_outputs %>%
+    mutate(away_ml_result = case_when(away_moneyline > 0 & team_winner == "win" ~ away_moneyline/100, 
+                                      away_moneyline > 0 & team_winner == "loss" ~ -1,
+                                      away_moneyline < 0 & team_winner == "win" ~ 1,
+                                      away_moneyline < 0 & team_winner == "loss" ~ away_moneyline/100),
+           home_ml_result = case_when(home_moneyline > 0 & team_winner == "loss" ~ home_moneyline/100, 
+                                      home_moneyline > 0 & team_winner == "win" ~ -1,
+                                      home_moneyline < 0 & team_winner == "loss" ~ 1,
+                                      home_moneyline < 0 & team_winner == "win" ~ home_moneyline/100),
+           away_ats_result = if_else((plus_minus + away_spread) == 0, 0,
+                                     if_else((plus_minus + away_spread) > 0, 1, -1.1)),
+           home_ats_result = if_else((plus_minus + home_spread) == 0, 0,
+                                     if_else((-plus_minus + home_spread) > 0, 1, -1.1)),
+           log_win_edge_away = log_win_away - away_implied_prob,
+           reg_win_edge_away = reg_win_away - away_implied_prob,
+           knn_win_edge_away = knn_win_away - away_implied_prob,
+           rf_win_edge_away = rf_win_away - away_implied_prob,
+           svm_win_edge_away = svm_win_away - away_implied_prob,
+           nn_win_edge_away = nn_win_away - away_implied_prob,
+           xgb_win_edge_away = xgb_win_away - away_implied_prob,
+           lin_spread_edge_away = (lin_team_score - lin_opp_score) + away_spread,
+           reg_spread_edge_away = (reg_team_score - reg_opp_score) + away_spread,
+           knn_spread_edge_away = (knn_team_score - knn_opp_score) + away_spread,
+           rf_spread_edge_away = (rf_team_score - rf_opp_score) + away_spread,
+           svm_spread_edge_away = (svm_team_score - svm_opp_score) + away_spread,
+           nn_spread_edge_away = (nn_team_score - nn_opp_score) + away_spread,
+           xgb_spread_edge_away = (xgb_team_score - xgb_opp_score) + away_spread,
+           log_win_edge = if_else(log_win_edge_away > 0, log_win_edge_away, -log_win_edge_away),
+           reg_win_edge = if_else(reg_win_edge_away > 0, reg_win_edge_away, -reg_win_edge_away),
+           knn_win_edge = if_else(knn_win_edge_away > 0, knn_win_edge_away, -knn_win_edge_away),
+           rf_win_edge = if_else(rf_win_edge_away > 0, rf_win_edge_away, -rf_win_edge_away),
+           svm_win_edge = if_else(svm_win_edge_away > 0, svm_win_edge_away, -svm_win_edge_away),
+           nn_win_edge = if_else(nn_win_edge_away > 0, nn_win_edge_away, -nn_win_edge_away),
+           xgb_win_edge = if_else(xgb_win_edge_away > 0, xgb_win_edge_away, -xgb_win_edge_away),
+           lin_spread_edge = if_else(lin_spread_edge_away > 0, lin_spread_edge_away, -lin_spread_edge_away),
+           reg_spread_edge = if_else(reg_spread_edge_away > 0, reg_spread_edge_away, -reg_spread_edge_away),
+           knn_spread_edge = if_else(knn_spread_edge_away > 0, knn_spread_edge_away, -knn_spread_edge_away),
+           rf_spread_edge = if_else(rf_spread_edge_away > 0, rf_spread_edge_away, -rf_spread_edge_away),
+           svm_spread_edge = if_else(svm_spread_edge_away > 0, svm_spread_edge_away, -svm_spread_edge_away),
+           nn_spread_edge = if_else(nn_spread_edge_away > 0, nn_spread_edge_away, -nn_spread_edge_away),
+           xgb_spread_edge = if_else(xgb_spread_edge_away > 0, xgb_spread_edge_away, -xgb_spread_edge_away),
+           log_win_result = if_else(log_win_edge_away > 0, away_ml_result, home_ml_result),
+           reg_win_result = if_else(reg_win_edge_away > 0, away_ml_result, home_ml_result),
+           knn_win_result = if_else(knn_win_edge_away > 0, away_ml_result, home_ml_result),
+           rf_win_result = if_else(rf_win_edge_away > 0, away_ml_result, home_ml_result),
+           svm_win_result = if_else(svm_win_edge_away > 0, away_ml_result, home_ml_result),
+           nn_win_result = if_else(nn_win_edge_away > 0, away_ml_result, home_ml_result),
+           xgb_win_result = if_else(xgb_win_edge_away > 0, away_ml_result, home_ml_result),
+           lin_spread_result = if_else(lin_spread_edge_away > 0, away_ats_result, home_ats_result),
+           reg_spread_result = if_else(reg_spread_edge_away > 0, away_ats_result, home_ats_result),
+           knn_spread_result = if_else(knn_spread_edge_away > 0, away_ats_result, home_ats_result),
+           rf_spread_result = if_else(rf_spread_edge_away > 0, away_ats_result, home_ats_result),
+           svm_spread_result = if_else(svm_spread_edge_away > 0, away_ats_result, home_ats_result),
+           nn_spread_result = if_else(nn_spread_edge_away > 0, away_ats_result, home_ats_result),
+           xgb_spread_result = if_else(xgb_spread_edge_away > 0, away_ats_result, home_ats_result),
+           ) %>%
+    group_by(location) %>%
+    summarise(across(c(log_win_result:xgb_spread_result), sum))
+
+
+
+
+
+
+
+
 
 
 
