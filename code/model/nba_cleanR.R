@@ -10,7 +10,7 @@ library(DBI)
 Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2)
 
 # pull game logs
-# game_logs(seasons = c(2014:2023), result_types = c("team","players"))
+# game_logs(seasons = c(2024), result_types = c("team","players"))
 
 dataGameLogsTeam <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"),
                         "GameLogsTeam") %>%
@@ -511,7 +511,8 @@ mamba_nba_cleanR <- function(seasons) {
     
     # Data transformation code
     cleaned_team_list <- lapply(all_data_list, function(df) {
-        df <- clean_names(df)
+        df <- clean_names(df) %>%
+            select(-starts_with(c("e_","opp_")), -ends_with(c("_rank","_flag")))
         return(df)
     })
     
@@ -525,7 +526,6 @@ mamba_nba_cleanR <- function(seasons) {
     }
     
     team_all_stats <- combined_df %>%
-        select(-starts_with(c("e_","opp_")), -ends_with(c("_rank","_flag"))) %>%
         arrange(game_date, game_id) %>%
         mutate(location = if_else(grepl("@", matchup) == T, "away", "home"),
                game_date = as_date(game_date),
@@ -557,37 +557,99 @@ mamba_nba_cleanR <- function(seasons) {
         mutate_if(is.logical, ~ ifelse(is.na(.), FALSE, .)) %>%
         select(game_id, team_name,
                is_b2b_first, is_b2b_second, game_count_season)
-
+    
+    opp_team_games <- team_games %>%
+        select(game_id, team_name,
+               is_b2b_first, is_b2b_second, game_count_season) %>%
+        rename_with(~paste0("opp_", .), -c(game_id))
+    
     opp_all_stats <- team_all_stats %>%
         select(game_id, team_name, fgm:pct_uast_fgm) %>%
         rename_with(~paste0("opp_", .), -c(game_id)) %>%
         select(-opp_plus_minus)
     
-    min_games <- min(team_all_stats %>%
-        select(team_name, location) %>%
-        group_by(team_name, location) %>%
-        tally() %>%
-        ungroup() %>%
-        select(n))
+    min_games <<- min(team_all_stats %>%
+                         select(team_name, location) %>%
+                         group_by(team_name, location) %>%
+                         tally() %>%
+                         ungroup() %>%
+                         select(n))
     
     nba_final <- team_all_stats %>%
         inner_join(opp_all_stats, by = c("game_id"), relationship = "many-to-many") %>%
         filter(team_name != opp_team_name) %>%
-        select(season_year, team_name, location, fgm:opp_pct_uast_fgm) %>%
-        group_by(season_year, team_name, location) %>%
+        select(season_year:team_name, opp_team_name,
+               game_id:min, pts, opp_pts, plus_minus, fgm:opp_pct_uast_fgm) %>%
+        mutate(pts_2pt_mr = round(pct_pts_2pt_mr*pts,0),
+               ast_2pm = round(pct_ast_2pm*(fgm-fg3m),0),
+               ast_3pm = round(pct_ast_3pm*fg3m,0),
+               opp_pts_2pt_mr = round(opp_pct_pts_2pt_mr*opp_pts,0),
+               opp_ast_2pm = round(opp_pct_ast_2pm*(opp_fgm-opp_fg3m),0),
+               opp_ast_3pm = round(opp_pct_ast_3pm*opp_fg3m,0)
+        ) %>%
+        group_by(season_year, team_id, location) %>%
         mutate(across(c(fgm:opp_pct_uast_fgm),
-                      ~ if (min_games >= 10) {
-                          pracma::movavg(.x, n = 10, type = 'e')
-                      } else if (min_games > 2) {
-                          pracma::movavg(.x, n = min_games, type = 'e')
+                      ~ if (min_games > 15) {
+                          pracma::movavg(.x, n = 15, type = 'e')
                       } else {
-                          mean(.x)
+                          pracma::movavg(.x, n = min_games-1, type = 'e')
                       })
         ) %>%
-        slice(n()) %>%
         ungroup() %>%
-        select(season_year, team_name, location,
-               fgm:pct_uast_fgm, opp_fgm:opp_pct_uast_fgm)
+        mutate(fg_pct = fgm/fga,
+               fg3_pct = fg3m/fg3a,
+               ft_pct = ftm/fta,
+               ast_pct = ast/fgm,
+               oreb_pct = oreb/(oreb+opp_dreb),
+               dreb_pct = dreb/(dreb+opp_oreb),
+               reb_pct = reb/(reb+opp_reb),
+               tm_tov_pct = tov/poss,
+               efg_pct = (fgm+(0.5*fg3m))/fga,
+               ts_pct = pts/(2*(fga+0.44*fta)),
+               fta_rate = fta/fga,
+               pct_fga_2pt = (fga-fg3a)/fga,
+               pct_fga_3pt = 1-pct_fga_2pt,
+               pct_pts_2pt = ((fgm-fg3m)*2)/pts,
+               pct_pts_2pt_mr = pts_2pt_mr/pts,
+               pct_pts_3pt = (fg3m*3)/pts,
+               pct_pts_fb = pts_fb/pts,
+               pct_pts_ft = ftm/pts,
+               pct_pts_off_tov = pts_off_tov/pts,
+               pct_pts_paint = pts_paint/pts,
+               pct_ast_2pm = ast_2pm/(fgm-fg3m),
+               pct_uast_2pm = 1-pct_ast_2pm,
+               pct_ast_3pm = ast_3pm/fg3m,
+               pct_uast_3pm = 1-pct_ast_3pm,
+               pct_ast_fgm = ast_pct,
+               pct_uast_fgm = 1-ast_pct,
+               opp_fg_pct = opp_fgm/opp_fga,
+               opp_fg3_pct = opp_fg3m/opp_fg3a,
+               opp_ft_pct = opp_ftm/opp_fta,
+               opp_ast_pct = opp_ast/opp_fgm,
+               opp_oreb_pct = opp_oreb/(opp_oreb+dreb),
+               opp_dreb_pct = opp_dreb/(opp_dreb+oreb),
+               opp_reb_pct = opp_reb/(reb+opp_reb),
+               opp_tm_tov_pct = opp_tov/opp_poss,
+               opp_efg_pct = (opp_fgm+(0.5*opp_fg3m))/opp_fga,
+               opp_ts_pct = opp_pts/(2*(opp_fga+0.44*opp_fta)),
+               opp_fta_rate = opp_fta/opp_fga,
+               opp_pct_fga_2pt = (opp_fga-opp_fg3a)/opp_fga,
+               opp_pct_fga_3pt = 1-opp_pct_fga_2pt,
+               opp_pct_pts_2pt = ((opp_fgm-opp_fg3m)*2)/opp_pts,
+               opp_pct_pts_2pt_mr = opp_pts_2pt_mr/opp_pts,
+               opp_pct_pts_3pt = (opp_fg3m*3)/opp_pts,
+               opp_pct_pts_fb = opp_pts_fb/opp_pts,
+               opp_pct_pts_ft = opp_ftm/opp_pts,
+               opp_pct_pts_off_tov = opp_pts_off_tov/opp_pts,
+               opp_pct_pts_paint = opp_pts_paint/opp_pts,
+               opp_pct_ast_2pm = opp_ast_2pm/(opp_fgm-opp_fg3m),
+               opp_pct_uast_2pm = 1-opp_pct_ast_2pm,
+               opp_pct_ast_3pm = opp_ast_3pm/opp_fg3m,
+               opp_pct_uast_3pm = 1-opp_pct_ast_3pm,
+               opp_pct_ast_fgm = opp_ast_pct,
+               opp_pct_uast_fgm = 1-opp_ast_pct) %>%
+        select(-c(pts_2pt_mr, ast_2pm, ast_3pm,
+                  opp_pts_2pt_mr, opp_ast_2pm, opp_ast_3pm))
     
     return(nba_final)
 }
@@ -643,6 +705,10 @@ bets_screen <- bets %>% select(game_date, away_team_name, home_team_name,
                                away_edge, home_edge)
 
     
+
+
+
+
 
 
 
