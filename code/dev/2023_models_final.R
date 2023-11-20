@@ -1535,6 +1535,219 @@ nn_opp_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
 nn_opp_imp
 
 
+# team winner extreme gradient boosting model ----
+# all features
+train <- nba_final %>%
+    filter(season <= 2021) %>%
+    select(team_winner, away_implied_prob,
+           b2b_first:opp_b2b_second,
+           away_fg2m:away_fg3_pct,
+           away_fgm:away_opp_fg3_pct,
+           away_opp_fgm:away_opp_ftr,
+           away_opp_ast:away_pace,
+           home_fg2m:home_fg3_pct,
+           home_fgm:home_opp_fg3_pct,
+           home_opp_fgm:home_opp_ftr,
+           home_opp_ast:home_pace)
+
+test <- nba_final %>%
+    filter(season > 2021) %>%
+    select(team_winner, away_implied_prob,
+           b2b_first:opp_b2b_second,
+           away_fg2m:away_fg3_pct,
+           away_fgm:away_opp_fg3_pct,
+           away_opp_fgm:away_opp_ftr,
+           away_opp_ast:away_pace,
+           home_fg2m:home_fg3_pct,
+           home_fgm:home_opp_fg3_pct,
+           home_opp_fgm:home_opp_ftr,
+           home_opp_ast:home_pace)
+
+# highly correlated features removed
+train <- train %>% select(-all_of(cor_cols))
+test <- test %>% select(-all_of(cor_cols))
+
+# normalize features
+pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
+
+train[,-1] = predict(pre_proc_val, train[,-1])
+test[,-1] = predict(pre_proc_val, test[,-1])
+
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
+                     classProbs = T, summaryFunction = twoClassSummary)
+grid <- expand.grid(
+    nrounds = xgb_tune$bestTune$nrounds,
+    eta = xgb_tune$bestTune$eta,
+    max_depth = xgb_tune$bestTune$max_depth,
+    gamma = xgb_tune$bestTune$gamma,
+    colsample_bytree = xgb_tune$bestTune$colsample_bytree,
+    min_child_weight = xgb_tune$bestTune$min_child_weight,
+    subsample = xgb_tune$bestTune$subsample
+)
+xgb_win <- train(team_winner ~., data = train,
+                 method = "xgbTree",
+                 metric = "ROC",
+                 trControl = ctrl,
+                 tuneGrid = grid)
+xgb_tune <- xgb_win
+
+# helper function for the plots
+tuneplot <- function(x, probs = .90) {
+    ggplot(x) +
+        coord_cartesian(ylim = c(quantile(x$results$ROC, probs = probs), min(x$results$ROC))) +
+        theme_bw()
+}
+
+tuneplot(xgb_tune)
+
+# predictions
+win_pred <- predict(xgb_win, test, type = "prob")
+
+model_outputs <- model_outputs %>%
+    mutate(xgb_win_away = as.numeric(win_pred[,1]),
+           xgb_win_home = as.numeric(win_pred[,2]))
+
+# team score extreme gradient boosting model ----
+# all features
+train <- nba_final %>%
+    filter(season <= 2021) %>%
+    select(team_score, away_implied_prob,
+           b2b_first:opp_b2b_second,
+           away_fg2m:away_fg3_pct,
+           away_fgm:away_opp_fg3_pct,
+           away_opp_fgm:away_opp_ftr,
+           away_opp_ast:away_pace,
+           home_fg2m:home_fg3_pct,
+           home_fgm:home_opp_fg3_pct,
+           home_opp_fgm:home_opp_ftr,
+           home_opp_ast:home_pace)
+
+test <- nba_final %>%
+    filter(season > 2021) %>%
+    select(team_score, away_implied_prob,
+           b2b_first:opp_b2b_second,
+           away_fg2m:away_fg3_pct,
+           away_fgm:away_opp_fg3_pct,
+           away_opp_fgm:away_opp_ftr,
+           away_opp_ast:away_pace,
+           home_fg2m:home_fg3_pct,
+           home_fgm:home_opp_fg3_pct,
+           home_opp_fgm:home_opp_ftr,
+           home_opp_ast:home_pace)
+
+# highly correlated features removed
+train <- train %>% select(-all_of(cor_cols))
+test <- test %>% select(-all_of(cor_cols))
+
+# normalize features
+pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
+
+train[,-1] = predict(pre_proc_val, train[,-1])
+test[,-1] = predict(pre_proc_val, test[,-1])
+
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    nrounds = xgb_tune$bestTune$nrounds,
+    eta = xgb_tune$bestTune$eta,
+    max_depth = xgb_tune$bestTune$max_depth,
+    gamma = xgb_tune$bestTune$gamma,
+    colsample_bytree = xgb_tune$bestTune$colsample_bytree,
+    min_child_weight = xgb_tune$bestTune$min_child_weight,
+    subsample = xgb_tune$bestTune$subsample
+)
+xgb_team <- train(team_score ~., data = train,
+                  method = "xgbTree",
+                  trControl = ctrl,
+                  tuneGrid = grid)
+xgb_tune <- xgb_team
+
+# helper function for the plots
+tuneplot <- function(x, probs = .90) {
+    ggplot(x) +
+        coord_cartesian(ylim = c(quantile(x$results$RMSE, probs = probs), min(x$results$RMSE))) +
+        theme_bw()
+}
+
+tuneplot(xgb_tune)
+
+# predictions
+team_pred <- predict(xgb_team, test)
+model_outputs <- model_outputs %>%
+    mutate(xgb_team_score = as.numeric(team_pred))
+
+
+# opp score extreme gradient boosting model ----
+# all features
+train <- nba_final %>%
+    filter(season <= 2021) %>%
+    select(opp_score, away_implied_prob,
+           b2b_first:opp_b2b_second,
+           away_fg2m:away_fg3_pct,
+           away_fgm:away_opp_fg3_pct,
+           away_opp_fgm:away_opp_ftr,
+           away_opp_ast:away_pace,
+           home_fg2m:home_fg3_pct,
+           home_fgm:home_opp_fg3_pct,
+           home_opp_fgm:home_opp_ftr,
+           home_opp_ast:home_pace)
+
+test <- nba_final %>%
+    filter(season > 2021) %>%
+    select(opp_score, away_implied_prob,
+           b2b_first:opp_b2b_second,
+           away_fg2m:away_fg3_pct,
+           away_fgm:away_opp_fg3_pct,
+           away_opp_fgm:away_opp_ftr,
+           away_opp_ast:away_pace,
+           home_fg2m:home_fg3_pct,
+           home_fgm:home_opp_fg3_pct,
+           home_opp_fgm:home_opp_ftr,
+           home_opp_ast:home_pace)
+
+# highly correlated features removed
+train <- train %>% select(-all_of(cor_cols))
+test <- test %>% select(-all_of(cor_cols))
+
+# normalize features
+pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
+
+train[,-1] = predict(pre_proc_val, train[,-1])
+test[,-1] = predict(pre_proc_val, test[,-1])
+
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    nrounds = xgb_tune$bestTune$nrounds,
+    eta = xgb_tune$bestTune$eta,
+    max_depth = xgb_tune$bestTune$max_depth,
+    gamma = xgb_tune$bestTune$gamma,
+    colsample_bytree = xgb_tune$bestTune$colsample_bytree,
+    min_child_weight = xgb_tune$bestTune$min_child_weight,
+    subsample = xgb_tune$bestTune$subsample
+)
+xgb_opp <- train(opp_score ~., data = train,
+                 method = "xgbTree",
+                 trControl = ctrl,
+                 tuneGrid = grid)
+xgb_tune <- xgb_opp
+
+# helper function for the plots
+tuneplot <- function(x, probs = .90) {
+    ggplot(x) +
+        coord_cartesian(ylim = c(quantile(x$results$RMSE, probs = probs), min(x$results$RMSE))) +
+        theme_bw()
+}
+
+tuneplot(xgb_tune)
+
+# predictions
+opp_pred <- predict(xgb_opp, test)
+model_outputs <- model_outputs %>%
+    mutate(xgb_opp_score = as.numeric(opp_pred))
+
+
 
 
 
