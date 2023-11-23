@@ -5,14 +5,10 @@ library(RSQLite)
 library(DBI)
 library(theoddsapi)
 
-# get current schedule
-nba_schedule_current <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"),
-                            "nba_schedule_current") %>%
-    collect() %>%
-    mutate(game_date = as_date(game_date, origin ="1970-01-01"))
 
+#### all functions for mamba model ----
 # function for odds
-get_odds <- function(book_name) {
+get_odds <- function(book_name, dates) {
     Sys.setenv(THEODDS_API_KEY = "9f158680c234e152e9df4027f4eccf1f")
     
     get_sports()
@@ -31,44 +27,49 @@ get_odds <- function(book_name) {
     
     book_spread <- all_spread %>%
         mutate(commence_time = as_date(commence_time)) %>%
-        filter(commence_time == Sys.Date() & book == book_name) %>%
+        filter(book == book_name) %>%
         rename(line = spreads) %>%
         mutate(bet_type = "spread")
     
     book_total <- all_total %>%
         mutate(commence_time = as_date(commence_time)) %>%
-        filter(commence_time == Sys.Date() & book == book_name) %>%
+        filter(book == book_name) %>%
         rename(line = totals) %>%
         mutate(bet_type = "total")
     
     book_ml <- all_ml %>%
         mutate(commence_time = as_date(commence_time)) %>%
-        filter(commence_time == Sys.Date() & book == book_name) %>%
+        filter(book == book_name) %>%
         rename(line = h2h) %>%
         mutate(bet_type = "ml")
     
-    all_odds <- bind_rows(book_spread, book_total, book_ml)  %>%
+    all_odds <- bind_rows(book_spread, book_total, book_ml) %>%
+        filter(commence_time %in% c(dates)) %>%
         pivot_wider(names_from = bet_type,
                     values_from = line) %>%
-        select(team, spread, ml, total)
+        select(commence_time, team, spread, ml, total) %>%
+        mutate(team = str_replace(team, "Los Angeles Clippers", "LA Clippers"))
     
     teams_away <- nba_schedule_current %>%
-        filter(game_date == Sys.Date()) %>%
-        select(away_team_name) %>%
-        left_join(all_odds, by = c("away_team_name" = "team")) %>%
+        filter(game_date %in% c(dates)) %>%
+        select(away_team_name, game_date) %>%
+        left_join(all_odds, by = c("away_team_name" = "team",
+                                   "game_date" = "commence_time")) %>%
         rename(away_spread = spread,
                away_moneyline = ml)
     
     teams_home <- nba_schedule_current %>%
-        filter(game_date == Sys.Date()) %>%
-        select(home_team_name) %>%
-        left_join(all_odds, by = c("home_team_name" = "team")) %>%
+        filter(game_date %in% c(dates)) %>%
+        select(home_team_name, game_date) %>%
+        left_join(all_odds, by = c("home_team_name" = "team",
+                                   "game_date" = "commence_time")) %>%
         rename(home_spread = spread,
                home_moneyline = ml,
-               over_under = total)
+               over_under = total) %>%
+        select(-game_date)
     
     final_odds <- bind_cols(teams_away, teams_home) %>%
-        select(away_team_name, home_team_name, away_spread, home_spread,
+        select(game_date, away_team_name, home_team_name, away_spread, home_spread,
                away_moneyline, home_moneyline, over_under)
     
     odds_wpo <- final_odds %>%
@@ -79,19 +80,10 @@ get_odds <- function(book_name) {
     odds_wpo <- implied::implied_probabilities(odds_wpo, method = 'wpo')
     
     final_odds <- final_odds %>%
-        mutate(away_implied_prob = odds_wpo$probabilities[, 1])
+        mutate(away_implied_prob = odds_wpo$probabilities[,1])
     
     return(final_odds)
 }
-book_name <- "DraftKings"
-
-# get current odds
-today_odds <- get_odds(book_name)
-
-# today's slate
-slate <- nba_schedule_current %>%
-    filter(game_date == Sys.Date()) %>%
-    left_join(today_odds)
 
 # functions for mamba cleanR
 generate_headers <- function() {
@@ -312,27 +304,8 @@ mamba_nba_cleanR <- function(seasons) {
     return(nba_final)
 }
 
-# mamba cleanR
-mamba_clean <- mamba_nba_cleanR(2024)
-
-# filter for today's away teams
-mamba_away <- mamba_clean %>%
-    filter(location == "away" & team_name %in% slate$away_team_name) %>%
-    select(-c(season_year, location)) %>%
-    rename_with(~paste0("away_", .), -team_name) %>%
-    group_by(team_name) %>%
-    slice(tail(row_number(), 1))
-
-# filter for today's home teams
-mamba_home <- mamba_clean %>%
-    filter(location == "home" & team_name %in% slate$home_team_name) %>%
-    select(-c(season_year, location)) %>%
-    rename_with(~paste0("home_", .), -team_name) %>%
-    group_by(team_name) %>%
-    slice(tail(row_number(), 1))
-
-# read in models for predictions
-load_multiple_rds_files <- function(directory_path) {
+# function to read in models for predictions
+load_model_rds_files <- function(directory_path) {
     # Get a list of all RDS files in the specified directory
     rds_files <- list.files(path = directory_path, pattern = "\\.rds$", full.names = TRUE)
     
@@ -341,28 +314,166 @@ load_multiple_rds_files <- function(directory_path) {
         stop("No RDS files found in the specified directory.")
     }
     
-    # Use lapply to read each RDS file and store the results in a list
-    loaded_data <- lapply(rds_files, function(file) {
-        data <- readRDS(file)
+    # Initialize an empty list to store loaded data
+    loaded_data <- list()
+    
+    # Use a for loop to read each RDS file and store the results in a list
+    for (file in rds_files) {
         # Extract the desired part of the file name
         file_name <- sub("_2019_2021.*", "", tools::file_path_sans_ext(basename(file)))
-        # Assign the loaded data to an object in the global environment
-        assign(file_name, data, envir = .GlobalEnv)
-        return(data)
-    })
+        # Read the RDS file and assign to the list using the extracted file_name as the list element name
+        loaded_data[[file_name]] <- readRDS(file)
+    }
     
-    # Return the list of loaded data
-    return(loaded_data)
+    # Create separate lists based on names
+    win_models <- loaded_data[grep("win", names(loaded_data), ignore.case = TRUE)]
+    team_models <- loaded_data[grep("team", names(loaded_data), ignore.case = TRUE)]
+    opp_models <- loaded_data[grep("opp", names(loaded_data), ignore.case = TRUE)]
+    pre_proc_val <- loaded_data[["pre_proc_val"]]
+    
+    # Return a list containing the three sublists
+    return(list(win_models = win_models,
+                team_models = team_models,
+                opp_models = opp_models,
+                pre_proc_val = pre_proc_val))
 }
 
+# function to make predictions
+make_predictions <- function(model_type, model_list, input_data, output_col_suffix) {
+    cols <- character(0)
+    
+    for (i in seq_along(model_list[[model_type]])) {
+        model <- model_list[[model_type]][[i]]
+        
+        if (model_type == "win_models") {
+            pred <- predict(model, input_data, type = "prob")[1]
+        } else {
+            pred <- as.data.frame(predict(model, input_data))
+        }
+        
+        new_cols <- paste0(names(model_list[[model_type]][i]), output_col_suffix)
+        colnames(pred) <- new_cols
+        cols <- c(cols, pred)
+    }
+    
+    return(cols)
+}
+
+
+
+#### schedule and odds ----
+# get current schedule from database
+nba_schedule_current <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"),
+                            "nba_schedule_current") %>%
+    collect() %>%
+    mutate(game_date = as_date(game_date, origin ="1970-01-01"))
+
+# get current odds
+book_name <- "BetMGM"
+dates <- "2023-11-24"
+today_odds <- get_odds(book_name, dates)
+
+# today's slate
+slate_today <- nba_schedule_current %>%
+    filter(game_date %in% c(dates)) %>%
+    left_join(today_odds)
+
+
+#### prepare ytd data ----
+# mamba cleanR
+mamba_clean <- mamba_nba_cleanR(2024)
+
+# filter for today's away teams
+mamba_away <- mamba_clean %>%
+    filter(location == "away" & team_name %in% slate_today$away_team_name) %>%
+    select(-c(season_year, location)) %>%
+    rename_with(~paste0("away_", .), -team_name) %>%
+    group_by(team_name) %>%
+    slice(tail(row_number(), 1))
+
+# filter for today's home teams
+mamba_home <- mamba_clean %>%
+    filter(location == "home" & team_name %in% slate_today$home_team_name) %>%
+    select(-c(season_year, location)) %>%
+    rename_with(~paste0("home_", .), -team_name) %>%
+    group_by(team_name) %>%
+    slice(tail(row_number(), 1))
+
+
+#### prepare for predictions ----
 directory_path <- "../NBAdb/models/models_trained/"
-invisible(load_multiple_rds_files(directory_path))
+model_list <- invisible(load_model_rds_files(directory_path))
 
 # mamba slate for predictions
-mamba_slate <- slate %>%
+slate_mamba <- slate_today %>%
     left_join(mamba_away, by = c("away_team_name" = "team_name")) %>%
     left_join(mamba_home, by = c("home_team_name" = "team_name")) %>%
-    select(away_team_name, all_of(pre_proc_val$method$center))
+    select(away_team_name, all_of(model_list$pre_proc_val$method$center))
+
+mamba_input <- predict(model_list$pre_proc_val,  slate_mamba[-1])
+
+
+#### make predictions ----
+# initialize slate_final
+slate_final <- slate_today %>% select(-c(is_b2b_first:opp_is_b2b_second))
+
+# loop through models
+for (model_type in c("win_models", "team_models", "opp_models")) {
+    col_suffix <- ifelse(model_type == "win_models", "_away", "_score")
+    slate_final <- bind_cols(slate_final,
+                             make_predictions(model_type, model_list,
+                                              mamba_input, col_suffix))
+}
+
+moneyline_key <- 0.05781939
+spread_key <- 4.30365229
+totals_key <- 0
+
+# add ensemble
+bets_final <- slate_final %>%
+    mutate(ens_win_away = rowMeans(select(.,log_win_away,reg_win_away,
+                                          svm_win_away,nn_win_away,
+                                          xgb_win_away), na.rm = TRUE),
+           ens_team_score = rowMeans(select(.,lin_team_score,reg_team_score,
+                                            svm_team_score,nn_team_score,
+                                            xgb_team_score), na.rm = TRUE),
+           ens_opp_score = rowMeans(select(.,lin_opp_score,reg_opp_score,
+                                           svm_opp_score,nn_opp_score,
+                                           xgb_opp_score), na.rm = TRUE),
+           reg_win_edge_away = reg_win_away - away_implied_prob,
+           ens_spread_edge_away = (ens_team_score - ens_opp_score) + away_spread,
+           moneyline_bet = if_else(abs(reg_win_edge_away) >= moneyline_key &
+                                       reg_win_edge_away > 0,
+                                   paste0(away_team_name," ", away_moneyline),
+                                   if_else(abs(reg_win_edge_away) >= moneyline_key &
+                                               reg_win_edge_away < 0,
+                                           paste0(home_team_name, " ", home_moneyline), NA), NA),
+           spread_bet = if_else(abs(ens_spread_edge_away) >= spread_key &
+                                    ens_spread_edge_away > 0,
+                                paste0(away_team_name," ", away_spread),
+                                if_else(abs(ens_spread_edge_away) >= spread_key &
+                                            ens_spread_edge_away < 0,
+                                        paste0(home_team_name, " ", home_spread), NA), NA)) %>%
+    select(game_date:over_under, reg_win_away, ens_team_score, ens_opp_score,
+           reg_win_edge_away, ens_spread_edge_away, moneyline_bet, spread_bet) %>%
+    filter(!is.na(moneyline_bet) | !is.na(spread_bet)) %>%
+    select(game_date:home_team_name, moneyline_bet, spread_bet)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
