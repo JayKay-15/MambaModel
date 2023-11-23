@@ -175,11 +175,11 @@ train <- train %>% select(-all_of(cor_cols))
 test <- test %>% select(-all_of(cor_cols))
 
 # normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
+pre_proc_val <- preProcess(train[,-c(1:5)], method = c("center", "scale"))
 
-train[,-1] = predict(pre_proc_val, train[,-1])
-test[,-1] = predict(pre_proc_val, test[,-1])
-
+train[,-c(1:5)] = predict(pre_proc_val, train[,-c(1:5)])
+test[,-c(1:5)] = predict(pre_proc_val, test[,-c(1:5)])
+ 
 
 # team winner logistic regression model ----
 # model
@@ -375,8 +375,8 @@ test <- test %>% select(-all_of(cor_cols))
 # normalize features
 pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
 
-train[,-1] = predict(pre_proc_val, train[,-1])
-test[,-1] = predict(pre_proc_val, test[,-1])
+train[,-c(1:5)] = predict(pre_proc_val, train[,-c(1:5)])
+test[,-c(1:5)] = predict(pre_proc_val, test[,-c(1:5)])
 
 
 # team score linear regression model ----
@@ -546,8 +546,8 @@ test <- test %>% select(-all_of(cor_cols))
 # normalize features
 pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
 
-train[,-1] = predict(pre_proc_val, train[,-1])
-test[,-1] = predict(pre_proc_val, test[,-1])
+train[,-c(1:5)] = predict(pre_proc_val, train[,-c(1:5)])
+test[,-c(1:5)] = predict(pre_proc_val, test[,-c(1:5)])
 
 
 # opp score linear regression model ----
@@ -763,7 +763,7 @@ grid <- expand.grid(
 
 
 
-model_outputs <- read_rds("./backest_output/model_outputs_w20.rds")
+model_outputs <- read_rds("./backest_output/model_outputs_w15.rds")
 
 model_outputs <- model_outputs %>%
     mutate(ens_win_away = rowMeans(select(.,log_win_away,reg_win_away,
@@ -835,7 +835,10 @@ model_outputs <- model_outputs %>%
            svm_spread_result = if_else(svm_spread_edge_away > 0, away_ats_result, home_ats_result),
            nn_spread_result = if_else(nn_spread_edge_away > 0, away_ats_result, home_ats_result),
            xgb_spread_result = if_else(xgb_spread_edge_away > 0, away_ats_result, home_ats_result),
-           ens_spread_result = if_else(ens_spread_edge_away > 0, away_ats_result, home_ats_result)
+           ens_spread_result = if_else(ens_spread_edge_away > 0, away_ats_result, home_ats_result),
+           cume_win = cumsum(reg_win_result),
+           cume_spread = cumsum(ens_spread_result)
+           
            )
 
 
@@ -868,6 +871,17 @@ result_df_w15 <- result_df
 result_df_w20 <- result_df
 
 
+
+model_outputs %>%
+    filter(reg_win_edge >= moneyline_key) %>%
+    group_by(game_date) %>%
+    summarise(day_total_win = sum(reg_win_result)) %>%
+    mutate(cume_win = cumsum(day_total_win)) %>%
+    add_row(game_date = min(model_outputs$game_date)-1, day_total_win = 0, cume_win = 0) %>%
+    ggplot(aes(x = factor(game_date), y = cume_win, group = 1)) +
+    geom_path() +
+    scale_x_discrete(labels = NULL) +
+    labs(x = "Game Date", y = "Cumulative Wins")
 
 
 
