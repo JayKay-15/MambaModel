@@ -370,7 +370,7 @@ nba_schedule_current <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"),
 
 # get current odds
 book_name <- "BetMGM"
-dates <- "2023-11-24"
+dates <- today()
 today_odds <- get_odds(book_name, dates)
 
 # today's slate
@@ -425,9 +425,10 @@ for (model_type in c("win_models", "team_models", "opp_models")) {
                                               mamba_input, col_suffix))
 }
 
-moneyline_key <- 0.05781939
-spread_key <- 4.30365229
-totals_key <- 0
+moneyline_key <- 0.05781939 # regularization (ridge)
+spread_key <- 4.30365229 # ensemble (lin, reg, svm, nn, xgb)
+over_key <- 2.5421957 # ensemble (lin, reg, svm, nn, xgb)
+under_key <- 1.9372166 # ensemble (lin, reg, svm, nn, xgb)
 
 # add ensemble
 bets_final <- slate_final %>%
@@ -453,11 +454,18 @@ bets_final <- slate_final %>%
                                 paste0(away_team_name," ", away_spread),
                                 if_else(abs(ens_spread_edge_away) >= spread_key &
                                             ens_spread_edge_away < 0,
-                                        paste0(home_team_name, " ", home_spread), NA), NA)) %>%
+                                        paste0(home_team_name, " ", home_spread), NA), NA),
+           over_under_bet = case_when(
+               (ens_team_score + ens_opp_score) > over_under &
+                   ((ens_team_score + ens_opp_score) - over_under) > over_key ~ paste0("over ", over_under),
+               (ens_team_score + ens_opp_score) < over_under &
+                   (over_under - (ens_team_score + ens_opp_score)) > under_key ~ paste0("under ", over_under),
+               .default = as.character(NA))
+           ) %>%
     select(game_date:over_under, reg_win_away, ens_team_score, ens_opp_score,
-           reg_win_edge_away, ens_spread_edge_away, moneyline_bet, spread_bet) %>%
-    filter(!is.na(moneyline_bet) | !is.na(spread_bet)) %>%
-    select(game_date:home_team_name, moneyline_bet, spread_bet)
+           reg_win_edge_away, ens_spread_edge_away, moneyline_bet, spread_bet, over_under_bet) %>%
+    filter(!is.na(moneyline_bet) | !is.na(spread_bet) | !is.na(over_under_bet)) %>%
+    select(game_date:home_team_name, moneyline_bet, spread_bet, over_under_bet)
 
 
 
