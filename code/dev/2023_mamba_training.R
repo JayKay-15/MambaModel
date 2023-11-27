@@ -788,6 +788,10 @@ model_outputs <- model_outputs %>%
                                      if_else((plus_minus + away_spread) > 0, 1, -1.1)),
            home_ats_result = if_else((plus_minus + home_spread) == 0, 0,
                                      if_else((-plus_minus + home_spread) > 0, 1, -1.1)),
+           over_result = if_else((team_score + opp_score) == 0, 0,
+                                 if_else((team_score + opp_score) > over_under, 1, -1.1)),
+           under_result = if_else((team_score + opp_score) == 0, 0,
+                                  if_else((team_score + opp_score) < over_under, 1, -1.1)),
            log_win_edge_away = log_win_away - away_implied_prob,
            reg_win_edge_away = reg_win_away - away_implied_prob,
            knn_win_edge_away = knn_win_away - away_implied_prob,
@@ -836,17 +840,73 @@ model_outputs <- model_outputs %>%
            nn_spread_result = if_else(nn_spread_edge_away > 0, away_ats_result, home_ats_result),
            xgb_spread_result = if_else(xgb_spread_edge_away > 0, away_ats_result, home_ats_result),
            ens_spread_result = if_else(ens_spread_edge_away > 0, away_ats_result, home_ats_result),
+           lin_over_edge_away = (lin_team_score + lin_opp_score) - over_under,
+           reg_over_edge_away = (reg_team_score + reg_opp_score) - over_under,
+           knn_over_edge_away = (knn_team_score + knn_opp_score) - over_under,
+           rf_over_edge_away = (rf_team_score + rf_opp_score) - over_under,
+           svm_over_edge_away = (svm_team_score + svm_opp_score) - over_under,
+           nn_over_edge_away = (nn_team_score + nn_opp_score) - over_under,
+           xgb_over_edge_away = (xgb_team_score + xgb_opp_score) - over_under,
+           ens_over_edge_away = (ens_team_score + ens_opp_score) - over_under,
+           lin_under_edge_away = over_under - (lin_team_score + lin_opp_score),
+           reg_under_edge_away = over_under - (reg_team_score + reg_opp_score),
+           knn_under_edge_away = over_under - (knn_team_score + knn_opp_score),
+           rf_under_edge_away = over_under - (rf_team_score + rf_opp_score),
+           svm_under_edge_away = over_under - (svm_team_score + svm_opp_score),
+           nn_under_edge_away = over_under - (nn_team_score + nn_opp_score),
+           xgb_under_edge_away = over_under - (xgb_team_score + xgb_opp_score),
+           ens_under_edge_away = over_under - (ens_team_score + ens_opp_score),
+           lin_over_result = if_else(lin_over_edge_away > 0, over_result, under_result),
+           reg_over_result = if_else(reg_over_edge_away > 0, over_result, under_result),
+           knn_over_result = if_else(knn_over_edge_away > 0, over_result, under_result),
+           rf_over_result = if_else(rf_over_edge_away > 0, over_result, under_result),
+           svm_over_result = if_else(svm_over_edge_away > 0, over_result, under_result),
+           nn_over_result = if_else(nn_over_edge_away > 0, over_result, under_result),
+           xgb_over_result = if_else(xgb_over_edge_away > 0, over_result, under_result),
+           ens_over_result = if_else(ens_over_edge_away > 0, over_result, under_result),
+           lin_under_result = if_else(lin_under_edge_away > 0, under_result, over_result),
+           reg_under_result = if_else(reg_under_edge_away > 0, under_result, over_result),
+           knn_under_result = if_else(knn_under_edge_away > 0, under_result, over_result),
+           rf_under_result = if_else(rf_under_edge_away > 0, under_result, over_result),
+           svm_under_result = if_else(svm_under_edge_away > 0, under_result, over_result),
+           nn_under_result = if_else(nn_under_edge_away > 0, under_result, over_result),
+           xgb_under_result = if_else(xgb_under_edge_away > 0, under_result, over_result),
+           ens_under_result = if_else(ens_under_edge_away > 0, under_result, over_result),
            cume_win = cumsum(reg_win_result),
-           cume_spread = cumsum(ens_spread_result)
-           
+           cume_spread = cumsum(ens_spread_result),
+           cume_over = cumsum(ens_over_result),
+           cume_under = cumsum(ens_under_result)
            )
 
-
+#### win & spread keys
 # Create an empty data frame to store results
 result_df <- data.frame()
 
-# Loop through columns 72 to 85
-for (i in 78:93) {
+# Loop through columns 80 to 95
+for (i in 80:95) {
+    # Arrange the data frame by descending order of the current column
+    sorted_data <- model_outputs %>%
+        select(all_of(i), i+16) %>%
+        arrange(desc(.[[1]])) %>%
+        mutate(cume = cumsum(.[[2]])) %>%
+        arrange(desc(cume))
+    
+    # Find the highest value
+    max_value <- sorted_data %>% select(1,3) %>% head(1)
+    
+    # Store values in the result data frame
+    result_df <- bind_rows(result_df, data.frame(model = colnames(max_value[1]),
+                                                 edge = as.numeric(max_value[1]),
+                                                 value = as.numeric(max_value[2]),
+                                                 stringsAsFactors = FALSE))
+}
+
+#### over/under keys
+# Create an empty data frame to store results
+result_df <- data.frame()
+
+# Loop through columns 112 to 127
+for (i in 112:127) {
     # Arrange the data frame by descending order of the current column
     sorted_data <- model_outputs %>%
         select(all_of(i), i+16) %>%
