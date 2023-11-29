@@ -767,15 +767,19 @@ model_outputs <- read_rds("./backest_output/model_outputs_w15.rds")
 
 model_outputs <- model_outputs %>%
     mutate(ens_win_away = rowMeans(select(.,log_win_away,reg_win_away,
-                               svm_win_away,nn_win_away,
-                               xgb_win_away), na.rm = TRUE),
+                                          svm_win_away,nn_win_away,
+                                          xgb_win_away), na.rm = TRUE),
            ens_win_home = 1 - ens_win_away,
            ens_team_score = rowMeans(select(.,lin_team_score,reg_team_score,
-                               svm_team_score,nn_team_score,
-                               xgb_team_score), na.rm = TRUE),
+                                            svm_team_score,nn_team_score,
+                                            xgb_team_score), na.rm = TRUE),
            ens_opp_score = rowMeans(select(.,lin_opp_score,reg_opp_score,
-                               svm_opp_score,nn_opp_score,
-                               xgb_opp_score), na.rm = TRUE),
+                                           svm_opp_score,nn_opp_score,
+                                           xgb_opp_score), na.rm = TRUE),
+           spread_wager = 1.1,
+           away_ml_game_wager = ifelse(away_moneyline < 100, away_moneyline/-100, 1),
+           home_ml_game_wager = ifelse(home_moneyline < 100, home_moneyline/-100, 1),
+           over_under_wager = 1.1,
            away_ml_result = case_when(away_moneyline > 0 & team_winner == "win" ~ away_moneyline/100, 
                                       away_moneyline > 0 & team_winner == "loss" ~ -1,
                                       away_moneyline < 0 & team_winner == "win" ~ 1,
@@ -788,10 +792,10 @@ model_outputs <- model_outputs %>%
                                      if_else((plus_minus + away_spread) > 0, 1, -1.1)),
            home_ats_result = if_else((plus_minus + home_spread) == 0, 0,
                                      if_else((-plus_minus + home_spread) > 0, 1, -1.1)),
-           over_result = if_else((team_score + opp_score) == 0, 0,
-                                 if_else((team_score + opp_score) > over_under, 1, -1.1)),
-           under_result = if_else((team_score + opp_score) == 0, 0,
-                                  if_else((team_score + opp_score) < over_under, 1, -1.1)),
+           over_game_result = if_else((team_score + opp_score) == 0, 0,
+                                      if_else((team_score + opp_score) > over_under, 1, -1.1)),
+           under_game_result = if_else((team_score + opp_score) == 0, 0,
+                                       if_else((team_score + opp_score) < over_under, 1, -1.1)),
            log_win_edge_away = log_win_away - away_implied_prob,
            reg_win_edge_away = reg_win_away - away_implied_prob,
            knn_win_edge_away = knn_win_away - away_implied_prob,
@@ -824,6 +828,22 @@ model_outputs <- model_outputs %>%
            nn_spread_edge = if_else(nn_spread_edge_away > 0, nn_spread_edge_away, -nn_spread_edge_away),
            xgb_spread_edge = if_else(xgb_spread_edge_away > 0, xgb_spread_edge_away, -xgb_spread_edge_away),
            ens_spread_edge = if_else(ens_spread_edge_away > 0, ens_spread_edge_away, -ens_spread_edge_away),
+           lin_over_edge = (lin_team_score + lin_opp_score) - over_under,
+           reg_over_edge = (reg_team_score + reg_opp_score) - over_under,
+           knn_over_edge = (knn_team_score + knn_opp_score) - over_under,
+           rf_over_edge = (rf_team_score + rf_opp_score) - over_under,
+           svm_over_edge = (svm_team_score + svm_opp_score) - over_under,
+           nn_over_edge = (nn_team_score + nn_opp_score) - over_under,
+           xgb_over_edge = (xgb_team_score + xgb_opp_score) - over_under,
+           ens_over_edge = (ens_team_score + ens_opp_score) - over_under,
+           lin_under_edge = over_under - (lin_team_score + lin_opp_score),
+           reg_under_edge = over_under - (reg_team_score + reg_opp_score),
+           knn_under_edge = over_under - (knn_team_score + knn_opp_score),
+           rf_under_edge = over_under - (rf_team_score + rf_opp_score),
+           svm_under_edge = over_under - (svm_team_score + svm_opp_score),
+           nn_under_edge = over_under - (nn_team_score + nn_opp_score),
+           xgb_under_edge = over_under - (xgb_team_score + xgb_opp_score),
+           ens_under_edge = over_under - (ens_team_score + ens_opp_score),
            log_win_result = if_else(log_win_edge_away > 0, away_ml_result, home_ml_result),
            reg_win_result = if_else(reg_win_edge_away > 0, away_ml_result, home_ml_result),
            knn_win_result = if_else(knn_win_edge_away > 0, away_ml_result, home_ml_result),
@@ -840,109 +860,276 @@ model_outputs <- model_outputs %>%
            nn_spread_result = if_else(nn_spread_edge_away > 0, away_ats_result, home_ats_result),
            xgb_spread_result = if_else(xgb_spread_edge_away > 0, away_ats_result, home_ats_result),
            ens_spread_result = if_else(ens_spread_edge_away > 0, away_ats_result, home_ats_result),
-           lin_over_edge_away = (lin_team_score + lin_opp_score) - over_under,
-           reg_over_edge_away = (reg_team_score + reg_opp_score) - over_under,
-           knn_over_edge_away = (knn_team_score + knn_opp_score) - over_under,
-           rf_over_edge_away = (rf_team_score + rf_opp_score) - over_under,
-           svm_over_edge_away = (svm_team_score + svm_opp_score) - over_under,
-           nn_over_edge_away = (nn_team_score + nn_opp_score) - over_under,
-           xgb_over_edge_away = (xgb_team_score + xgb_opp_score) - over_under,
-           ens_over_edge_away = (ens_team_score + ens_opp_score) - over_under,
-           lin_under_edge_away = over_under - (lin_team_score + lin_opp_score),
-           reg_under_edge_away = over_under - (reg_team_score + reg_opp_score),
-           knn_under_edge_away = over_under - (knn_team_score + knn_opp_score),
-           rf_under_edge_away = over_under - (rf_team_score + rf_opp_score),
-           svm_under_edge_away = over_under - (svm_team_score + svm_opp_score),
-           nn_under_edge_away = over_under - (nn_team_score + nn_opp_score),
-           xgb_under_edge_away = over_under - (xgb_team_score + xgb_opp_score),
-           ens_under_edge_away = over_under - (ens_team_score + ens_opp_score),
-           lin_over_result = if_else(lin_over_edge_away > 0, over_result, under_result),
-           reg_over_result = if_else(reg_over_edge_away > 0, over_result, under_result),
-           knn_over_result = if_else(knn_over_edge_away > 0, over_result, under_result),
-           rf_over_result = if_else(rf_over_edge_away > 0, over_result, under_result),
-           svm_over_result = if_else(svm_over_edge_away > 0, over_result, under_result),
-           nn_over_result = if_else(nn_over_edge_away > 0, over_result, under_result),
-           xgb_over_result = if_else(xgb_over_edge_away > 0, over_result, under_result),
-           ens_over_result = if_else(ens_over_edge_away > 0, over_result, under_result),
-           lin_under_result = if_else(lin_under_edge_away > 0, under_result, over_result),
-           reg_under_result = if_else(reg_under_edge_away > 0, under_result, over_result),
-           knn_under_result = if_else(knn_under_edge_away > 0, under_result, over_result),
-           rf_under_result = if_else(rf_under_edge_away > 0, under_result, over_result),
-           svm_under_result = if_else(svm_under_edge_away > 0, under_result, over_result),
-           nn_under_result = if_else(nn_under_edge_away > 0, under_result, over_result),
-           xgb_under_result = if_else(xgb_under_edge_away > 0, under_result, over_result),
-           ens_under_result = if_else(ens_under_edge_away > 0, under_result, over_result),
+           lin_over_result = if_else(lin_over_edge > 0, over_game_result, under_game_result),
+           reg_over_result = if_else(reg_over_edge > 0, over_game_result, under_game_result),
+           knn_over_result = if_else(knn_over_edge > 0, over_game_result, under_game_result),
+           rf_over_result = if_else(rf_over_edge > 0, over_game_result, under_game_result),
+           svm_over_result = if_else(svm_over_edge > 0, over_game_result, under_game_result),
+           nn_over_result = if_else(nn_over_edge > 0, over_game_result, under_game_result),
+           xgb_over_result = if_else(xgb_over_edge > 0, over_game_result, under_game_result),
+           ens_over_result = if_else(ens_over_edge > 0, over_game_result, under_game_result),
+           lin_under_result = if_else(lin_under_edge > 0, under_game_result, over_game_result),
+           reg_under_result = if_else(reg_under_edge > 0, under_game_result, over_game_result),
+           knn_under_result = if_else(knn_under_edge > 0, under_game_result, over_game_result),
+           rf_under_result = if_else(rf_under_edge > 0, under_game_result, over_game_result),
+           svm_under_result = if_else(svm_under_edge > 0, under_game_result, over_game_result),
+           nn_under_result = if_else(nn_under_edge > 0, under_game_result, over_game_result),
+           xgb_under_result = if_else(xgb_under_edge > 0, under_game_result, over_game_result),
+           ens_under_result = if_else(ens_under_edge > 0, under_game_result, over_game_result),
+           log_ml_wager = if_else(log_win_edge_away > 0, away_ml_game_wager, home_ml_game_wager),
+           reg_ml_wager = if_else(reg_win_edge_away > 0, away_ml_game_wager, home_ml_game_wager),
+           knn_ml_wager = if_else(knn_win_edge_away > 0, away_ml_game_wager, home_ml_game_wager),
+           rf_ml_wager = if_else(rf_win_edge_away > 0, away_ml_game_wager, home_ml_game_wager),
+           svm_ml_wager = if_else(svm_win_edge_away > 0, away_ml_game_wager, home_ml_game_wager),
+           nn_ml_wager = if_else(nn_win_edge_away > 0, away_ml_game_wager, home_ml_game_wager),
+           xgb_ml_wager = if_else(xgb_win_edge_away > 0, away_ml_game_wager, home_ml_game_wager),
+           ens_ml_wager = if_else(ens_win_edge_away > 0, away_ml_game_wager, home_ml_game_wager),
            cume_win = cumsum(reg_win_result),
            cume_spread = cumsum(ens_spread_result),
            cume_over = cumsum(ens_over_result),
            cume_under = cumsum(ens_under_result)
-           )
+    )
 
-#### win & spread keys
-# Create an empty data frame to store results
-result_df <- data.frame()
 
-# Loop through columns 80 to 95
-for (i in 80:95) {
-    # Arrange the data frame by descending order of the current column
-    sorted_data <- model_outputs %>%
-        select(all_of(i), i+16) %>%
-        arrange(desc(.[[1]])) %>%
-        mutate(cume = cumsum(.[[2]])) %>%
-        arrange(desc(cume))
+#### function to process model outputs ----
+process_model_outputs <- function(model_outputs) {
+    # Create an empty data frame to store results
+    result_df <- data.frame()
     
-    # Find the highest value
-    max_value <- sorted_data %>% select(1,3) %>% head(1)
+    # Specify column names
+    edge_columns <- names(model_outputs %>% 
+                              select(ends_with("win_edge")))
+    result_columns <- names(model_outputs %>% 
+                                select(ends_with("win_result")))
+    wager_columns <- names(model_outputs %>% 
+                               select(ends_with("ml_wager")))
     
-    # Store values in the result data frame
-    result_df <- bind_rows(result_df, data.frame(model = colnames(max_value[1]),
-                                                 edge = as.numeric(max_value[1]),
-                                                 value = as.numeric(max_value[2]),
-                                                 stringsAsFactors = FALSE))
+    # Loop through columns
+    for (i in seq_along(edge_columns)) {
+        max_value <- model_outputs %>%
+            select(edge_columns[i], result_columns[i], wager_columns[i]) %>%
+            arrange(desc(.[[1]])) %>% # arrange(desc(select(.,ends_with("edge"))))
+            mutate(cume = cumsum(.[[2]]),
+                   games = row_number(),
+                   roi = round((cume / cumsum(.[[3]]))*100,2)
+            ) %>%
+            arrange(desc(cume)) %>%
+            slice(1) %>%
+            mutate(model = colnames(.[1])) %>%
+            select(model, edge = edge_columns[i], value = cume, games, roi) %>%
+            mutate(across(c(edge, value, games, roi), as.numeric),
+                   model = sub("_edge$", "", model))
+        
+        # Store values in the result data frame
+        result_df <- bind_rows(result_df, max_value)
+    }
+    
+    # Specify column names
+    edge_columns <- names(model_outputs %>% 
+                              select(ends_with("spread_edge") | 
+                                         ends_with("over_edge") | 
+                                         ends_with("under_edge")
+                              ))
+    result_columns <- names(model_outputs %>% 
+                                select(ends_with("spread_result") | 
+                                           ends_with("over_result") | 
+                                           ends_with("under_result")
+                                ))
+    
+    # Loop through columns
+    for (i in seq_along(edge_columns)) {
+        max_value <- model_outputs %>%
+            select(edge_columns[i], result_columns[i]) %>%
+            arrange(desc(.[[1]])) %>% # arrange(desc(select(.,ends_with("edge"))))
+            mutate(cume = cumsum(.[[2]]),
+                   games = row_number(),
+                   roi = round((cume /(games*1.1))*100,2)
+            ) %>%
+            arrange(desc(cume)) %>%
+            slice(1) %>%
+            mutate(model = colnames(.[1])) %>%
+            select(model, edge = edge_columns[i], value = cume, games, roi) %>%
+            mutate(across(c(edge, value, games, roi), as.numeric),
+                   model = sub("_edge$", "", model))
+        
+        # Store values in the result data frame
+        result_df <- bind_rows(result_df, max_value)
+    }
+    
+    return(result_df)
 }
 
-#### over/under keys
-# Create an empty data frame to store results
-result_df <- data.frame()
+# usage of the function
+result_df <- process_model_outputs(model_outputs)
 
-# Loop through columns 112 to 127
-for (i in 112:127) {
-    # Arrange the data frame by descending order of the current column
-    sorted_data <- model_outputs %>%
-        select(all_of(i), i+16) %>%
-        arrange(desc(.[[1]])) %>%
-        mutate(cume = cumsum(.[[2]])) %>%
-        arrange(desc(cume))
+#### function to produce model viz ----
+model_viz <- function(models_edge, models_result, models_key) {
     
-    # Find the highest value
-    max_value <- sorted_data %>% select(1,3) %>% head(1)
+    for (i in seq_along(models_edge)) {
+        plot <- model_outputs %>%
+            select(season_year, game_date,
+                   models_edge[i], models_result[i]) %>%
+            filter(c_across(contains(models_edge[i])) >= models_key[i]) %>%
+            group_by(season_year, game_date) %>%
+            summarise(day_total_win = sum(c_across(contains(models_result[i])))) %>%
+            ungroup() %>%
+            mutate(cume_win = cumsum(day_total_win)) %>%
+            add_row(season_year = min(model_outputs$season_year),
+                    game_date = min(model_outputs$game_date) - 1,
+                    day_total_win = 0,
+                    cume_win = 0) %>%
+            ggplot(aes(x = game_date, y = cume_win, group = season_year)) +
+            geom_line() +
+            geom_smooth(method = "lm", se = FALSE, linetype = "dashed", color = "dodgerblue") +
+            labs(x = "Game Date", y = "Units Won") +
+            labs(title = "Betting Performance by Season",
+                 subtitle = paste0(sub("_edge$", "", models_edge)),
+                 x = "",
+                 y = "Units Won") +
+            theme_bw() +
+            theme(
+                text = element_text(size = 12),
+                axis.text.x = element_text(angle = 45, hjust = 1),
+                legend.position = "top"
+            ) +
+            facet_wrap(~season_year, scales = "free_x") +
+            scale_y_continuous(breaks = scales::pretty_breaks(n = 10))
+        
+        print(plot)
+        
+    }
     
-    # Store values in the result data frame
-    result_df <- bind_rows(result_df, data.frame(model = colnames(max_value[1]),
-                                                 edge = as.numeric(max_value[1]),
-                                                 value = as.numeric(max_value[2]),
-                                                 stringsAsFactors = FALSE))
 }
 
+# usage of the function
+result_df <- process_model_outputs(model_outputs)
+models_edge <- c("reg_win_edge", "ens_spread_edge",
+                 "ens_over_edge", "ens_under_edge")
+models_result <- c("reg_win_result", "ens_spread_result",
+                   "ens_over_result", "ens_under_result")
+models_key <- c(0.05781939, 4.30365229, 2.5421957, 1.9372166)
 
-result_df_w5 <- result_df
-result_df_w10 <- result_df
-result_df_w15 <- result_df
-result_df_w20 <- result_df
+model_viz(models_edge, models_result, models_key)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+moneyline_key <- 0.05781939 # regularization (ridge)
+spread_key <- 4.30365229 # ensemble (lin, reg, svm, nn, xgb)
+over_key <- 2.5421957 # ensemble (lin, reg, svm, nn, xgb)
+under_key <- 1.9372166 # ensemble (lin, reg, svm, nn, xgb)
 
 
 model_outputs %>%
     filter(reg_win_edge >= moneyline_key) %>%
-    group_by(game_date) %>%
+    group_by(season_year, game_date) %>%
     summarise(day_total_win = sum(reg_win_result)) %>%
+    ungroup() %>%
     mutate(cume_win = cumsum(day_total_win)) %>%
-    add_row(game_date = min(model_outputs$game_date)-1, day_total_win = 0, cume_win = 0) %>%
-    ggplot(aes(x = factor(game_date), y = cume_win, group = 1)) +
-    geom_path() +
-    scale_x_discrete(labels = NULL) +
-    labs(x = "Game Date", y = "Cumulative Wins")
+    add_row(season_year = min(model_outputs$season_year),
+            game_date = min(model_outputs$game_date) - 1,
+            day_total_win = 0,
+            cume_win = 0) %>%
+    ggplot(aes(x = game_date, y = cume_win, group = season_year)) +
+    geom_line() +
+    geom_smooth(method = "lm", se = FALSE, linetype = "dashed", color = "dodgerblue") +
+    labs(title = "Betting Performance by Season",
+         x = "",
+         y = "Units Won") +
+    theme_bw() +
+    theme(
+        text = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top"
+    ) +
+    facet_wrap(~season_year, scales = "free_x") +
+    scale_y_continuous(breaks = scales::pretty_breaks(n = 10))
 
+
+
+
+
+
+#### moneyline outputs ----
+# Create an empty data frame to store results
+result_df <- data.frame()
+
+# Specify column names
+edge_columns <- names(model_outputs %>% 
+                          select(ends_with("win_edge")))
+result_columns <- names(model_outputs %>% 
+                            select(ends_with("win_result")))
+wager_columns <- names(model_outputs %>% 
+                           select(ends_with("ml_wager")))
+
+# Loop through columns
+for (i in seq_along(edge_columns)) {
+    max_value <- model_outputs %>%
+        select(edge_columns[i], result_columns[i], wager_columns[i]) %>%
+        arrange(desc(.[[1]])) %>% # arrange(desc(select(.,ends_with("edge"))))
+        mutate(cume = cumsum(.[[2]]),
+               games = row_number(),
+               roi = round((cume / cumsum(.[[3]]))*100,2)
+        ) %>%
+        arrange(desc(cume)) %>%
+        slice(1) %>%
+        mutate(model = colnames(.[1])) %>%
+        select(model, edge = edge_columns[i], value = cume, games, roi) %>%
+        mutate(across(c(edge, value, games, roi), as.numeric),
+               model = sub("_edge$", "", model))
+    
+    # Store values in the result data frame
+    result_df <- bind_rows(result_df, max_value)
+}
+
+
+
+#### spread & over/under outputs ----
+# Create an empty data frame to store results
+result_df <- data.frame()
+
+# Specify column names
+edge_columns <- names(model_outputs %>% 
+                          select(ends_with("spread_edge") | 
+                                     ends_with("over_edge") | 
+                                     ends_with("under_edge")
+                          ))
+result_columns <- names(model_outputs %>% 
+                            select(ends_with("spread_result") | 
+                                       ends_with("over_result") | 
+                                       ends_with("under_result")
+                            ))
+
+# Loop through columns
+for (i in seq_along(edge_columns)) {
+    max_value <- model_outputs %>%
+        select(edge_columns[i], result_columns[i]) %>%
+        arrange(desc(.[[1]])) %>% # arrange(desc(select(.,ends_with("edge"))))
+        mutate(cume = cumsum(.[[2]]),
+               games = row_number(),
+               roi = round((cume /(games*1.1))*100,2)
+        ) %>%
+        arrange(desc(cume)) %>%
+        slice(1) %>%
+        mutate(model = colnames(.[1])) %>%
+        select(model, edge = edge_columns[i], value = cume, games, roi) %>%
+        mutate(across(c(edge, value, games, roi), as.numeric),
+               model = sub("_edge$", "", model))
+    
+    # Store values in the result data frame
+    result_df <- bind_rows(result_df, max_value)
+}
 
 
 
