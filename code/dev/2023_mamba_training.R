@@ -84,8 +84,8 @@ summary(cor_mx_new[upper.tri(cor_mx_new)])
 
 # correlations - win
 model_win_all <- nba_final %>%
-    select(team_winner, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
-           away_fgm:home_opp_pct_uast_fgm) %>%
+    select(team_winner, is_b2b_first:opp_is_b2b_second, over_under,
+           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating")) %>%
     mutate(team_winner = if_else(team_winner == "win", 1, 0))
 
@@ -107,8 +107,8 @@ cor_mx
 
 # correlations - team score
 model_ts_all <- nba_final %>%
-    select(team_score, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
-           away_fgm:home_opp_pct_uast_fgm) %>%
+    select(team_score, is_b2b_first:opp_is_b2b_second, over_under,
+           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 # near zero variables
@@ -129,8 +129,8 @@ cor_mx
 
 # correlations - opp score
 model_os_all <- nba_final %>%
-    select(opp_score, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
-           away_fgm:home_opp_pct_uast_fgm) %>%
+    select(opp_score, is_b2b_first:opp_is_b2b_second, over_under,
+           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 # near zero variables
@@ -156,14 +156,14 @@ rm(list=ls()[! ls() %in% c("nba_final", "cor_cols")])
 # all features
 train <- nba_final %>%
     filter(season_year <= 2021) %>%
-    select(team_winner, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
-           away_fgm:home_opp_pct_uast_fgm) %>%
+    select(team_winner, is_b2b_first:opp_is_b2b_second, over_under,
+           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 test <- nba_final %>%
     filter(season_year > 2021) %>%
-    select(team_winner, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
-           away_fgm:home_opp_pct_uast_fgm) %>%
+    select(team_winner, is_b2b_first:opp_is_b2b_second, over_under,
+           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 model_outputs <- nba_final %>%
@@ -354,14 +354,14 @@ model_outputs <- model_outputs %>%
 # all features
 train <- nba_final %>%
     filter(season_year <= 2021) %>%
-    select(team_score, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
-           away_fgm:home_opp_pct_uast_fgm) %>%
+    select(team_score, is_b2b_first:opp_is_b2b_second, over_under,
+           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 test <- nba_final %>%
     filter(season_year > 2021) %>%
-    select(team_score, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
-           away_fgm:home_opp_pct_uast_fgm) %>%
+    select(team_score, is_b2b_first:opp_is_b2b_second, over_under,
+           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 # model_outputs <- nba_final %>%
@@ -525,14 +525,14 @@ model_outputs <- model_outputs %>%
 # all features
 train <- nba_final %>%
     filter(season_year <= 2021) %>%
-    select(opp_score, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
-           away_fgm:home_opp_pct_uast_fgm) %>%
+    select(opp_score, is_b2b_first:opp_is_b2b_second, over_under,
+           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 test <- nba_final %>%
     filter(season_year > 2021) %>%
-    select(opp_score, is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
-           away_fgm:home_opp_pct_uast_fgm) %>%
+    select(opp_score, is_b2b_first:opp_is_b2b_second, over_under,
+           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 # model_outputs <- nba_final %>%
@@ -692,7 +692,8 @@ model_outputs <- model_outputs %>%
     mutate(xgb_opp_score = as.numeric(opp_pred))
 
 # pre-processed stats ----
-saveRDS(pre_proc_val, "../NBAdb/models/models_trained/pre_proc_val_2019_2021.rds")
+saveRDS(pre_proc_val,
+        "../NBAdb/models/models_trained/pre_proc_val_2019_2021.rds")
 
 
 
@@ -777,25 +778,33 @@ model_outputs <- model_outputs %>%
                                            svm_opp_score,nn_opp_score,
                                            xgb_opp_score), na.rm = TRUE),
            spread_wager = 1.1,
-           away_ml_game_wager = ifelse(away_moneyline < 100, away_moneyline/-100, 1),
-           home_ml_game_wager = ifelse(home_moneyline < 100, home_moneyline/-100, 1),
+           away_ml_game_wager = ifelse(away_moneyline < 100,
+                                       away_moneyline/-100, 1),
+           home_ml_game_wager = ifelse(home_moneyline < 100,
+                                       home_moneyline/-100, 1),
            over_under_wager = 1.1,
-           away_ml_result = case_when(away_moneyline > 0 & team_winner == "win" ~ away_moneyline/100, 
-                                      away_moneyline > 0 & team_winner == "loss" ~ -1,
-                                      away_moneyline < 0 & team_winner == "win" ~ 1,
-                                      away_moneyline < 0 & team_winner == "loss" ~ away_moneyline/100),
-           home_ml_result = case_when(home_moneyline > 0 & team_winner == "loss" ~ home_moneyline/100, 
-                                      home_moneyline > 0 & team_winner == "win" ~ -1,
-                                      home_moneyline < 0 & team_winner == "loss" ~ 1,
-                                      home_moneyline < 0 & team_winner == "win" ~ home_moneyline/100),
+           away_ml_result = case_when(
+               away_moneyline > 0 & team_winner == "win" ~ away_moneyline/100,
+               away_moneyline > 0 & team_winner == "loss" ~ -1,
+               away_moneyline < 0 & team_winner == "win" ~ 1,
+               away_moneyline < 0 & team_winner == "loss" ~ away_moneyline/100),
+           home_ml_result = case_when(
+               home_moneyline > 0 & team_winner == "loss" ~ home_moneyline/100,
+               home_moneyline > 0 & team_winner == "win" ~ -1,
+               home_moneyline < 0 & team_winner == "loss" ~ 1,
+               home_moneyline < 0 & team_winner == "win" ~ home_moneyline/100),
            away_ats_result = if_else((plus_minus + away_spread) == 0, 0,
-                                     if_else((plus_minus + away_spread) > 0, 1, -1.1)),
+                                     if_else((plus_minus + away_spread) > 0,
+                                             1, -1.1)),
            home_ats_result = if_else((plus_minus + home_spread) == 0, 0,
-                                     if_else((-plus_minus + home_spread) > 0, 1, -1.1)),
+                                     if_else((-plus_minus + home_spread) > 0,
+                                             1, -1.1)),
            over_game_result = if_else((team_score + opp_score) == 0, 0,
-                                      if_else((team_score + opp_score) > over_under, 1, -1.1)),
+                                      if_else((team_score + opp_score) > over_under,
+                                              1, -1.1)),
            under_game_result = if_else((team_score + opp_score) == 0, 0,
-                                       if_else((team_score + opp_score) < over_under, 1, -1.1)),
+                                       if_else((team_score + opp_score) < over_under,
+                                               1, -1.1)),
            log_win_edge_away = log_win_away - away_implied_prob,
            reg_win_edge_away = reg_win_away - away_implied_prob,
            knn_win_edge_away = knn_win_away - away_implied_prob,
@@ -812,22 +821,38 @@ model_outputs <- model_outputs %>%
            nn_spread_edge_away = (nn_team_score - nn_opp_score) + away_spread,
            xgb_spread_edge_away = (xgb_team_score - xgb_opp_score) + away_spread,
            ens_spread_edge_away = (ens_team_score - ens_opp_score) + away_spread,
-           log_win_edge = if_else(log_win_edge_away > 0, log_win_edge_away, -log_win_edge_away),
-           reg_win_edge = if_else(reg_win_edge_away > 0, reg_win_edge_away, -reg_win_edge_away),
-           knn_win_edge = if_else(knn_win_edge_away > 0, knn_win_edge_away, -knn_win_edge_away),
-           rf_win_edge = if_else(rf_win_edge_away > 0, rf_win_edge_away, -rf_win_edge_away),
-           svm_win_edge = if_else(svm_win_edge_away > 0, svm_win_edge_away, -svm_win_edge_away),
-           nn_win_edge = if_else(nn_win_edge_away > 0, nn_win_edge_away, -nn_win_edge_away),
-           xgb_win_edge = if_else(xgb_win_edge_away > 0, xgb_win_edge_away, -xgb_win_edge_away),
-           ens_win_edge = if_else(ens_win_edge_away > 0, ens_win_edge_away, -ens_win_edge_away),
-           lin_spread_edge = if_else(lin_spread_edge_away > 0, lin_spread_edge_away, -lin_spread_edge_away),
-           reg_spread_edge = if_else(reg_spread_edge_away > 0, reg_spread_edge_away, -reg_spread_edge_away),
-           knn_spread_edge = if_else(knn_spread_edge_away > 0, knn_spread_edge_away, -knn_spread_edge_away),
-           rf_spread_edge = if_else(rf_spread_edge_away > 0, rf_spread_edge_away, -rf_spread_edge_away),
-           svm_spread_edge = if_else(svm_spread_edge_away > 0, svm_spread_edge_away, -svm_spread_edge_away),
-           nn_spread_edge = if_else(nn_spread_edge_away > 0, nn_spread_edge_away, -nn_spread_edge_away),
-           xgb_spread_edge = if_else(xgb_spread_edge_away > 0, xgb_spread_edge_away, -xgb_spread_edge_away),
-           ens_spread_edge = if_else(ens_spread_edge_away > 0, ens_spread_edge_away, -ens_spread_edge_away),
+           log_win_edge = if_else(log_win_edge_away > 0,
+                                  log_win_edge_away, -log_win_edge_away),
+           reg_win_edge = if_else(reg_win_edge_away > 0,
+                                  reg_win_edge_away, -reg_win_edge_away),
+           knn_win_edge = if_else(knn_win_edge_away > 0,
+                                  knn_win_edge_away, -knn_win_edge_away),
+           rf_win_edge = if_else(rf_win_edge_away > 0,
+                                 rf_win_edge_away, -rf_win_edge_away),
+           svm_win_edge = if_else(svm_win_edge_away > 0,
+                                  svm_win_edge_away, -svm_win_edge_away),
+           nn_win_edge = if_else(nn_win_edge_away > 0,
+                                 nn_win_edge_away, -nn_win_edge_away),
+           xgb_win_edge = if_else(xgb_win_edge_away > 0,
+                                  xgb_win_edge_away, -xgb_win_edge_away),
+           ens_win_edge = if_else(ens_win_edge_away > 0,
+                                  ens_win_edge_away, -ens_win_edge_away),
+           lin_spread_edge = if_else(lin_spread_edge_away > 0,
+                                     lin_spread_edge_away, -lin_spread_edge_away),
+           reg_spread_edge = if_else(reg_spread_edge_away > 0,
+                                     reg_spread_edge_away, -reg_spread_edge_away),
+           knn_spread_edge = if_else(knn_spread_edge_away > 0,
+                                     knn_spread_edge_away, -knn_spread_edge_away),
+           rf_spread_edge = if_else(rf_spread_edge_away > 0,
+                                    rf_spread_edge_away, -rf_spread_edge_away),
+           svm_spread_edge = if_else(svm_spread_edge_away > 0,
+                                     svm_spread_edge_away, -svm_spread_edge_away),
+           nn_spread_edge = if_else(nn_spread_edge_away > 0,
+                                    nn_spread_edge_away, -nn_spread_edge_away),
+           xgb_spread_edge = if_else(xgb_spread_edge_away > 0,
+                                     xgb_spread_edge_away, -xgb_spread_edge_away),
+           ens_spread_edge = if_else(ens_spread_edge_away > 0,
+                                     ens_spread_edge_away, -ens_spread_edge_away),
            lin_over_edge = (lin_team_score + lin_opp_score) - over_under,
            reg_over_edge = (reg_team_score + reg_opp_score) - over_under,
            knn_over_edge = (knn_team_score + knn_opp_score) - over_under,
@@ -844,46 +869,86 @@ model_outputs <- model_outputs %>%
            nn_under_edge = over_under - (nn_team_score + nn_opp_score),
            xgb_under_edge = over_under - (xgb_team_score + xgb_opp_score),
            ens_under_edge = over_under - (ens_team_score + ens_opp_score),
-           log_win_result = if_else(log_win_edge_away > 0, away_ml_result, home_ml_result),
-           reg_win_result = if_else(reg_win_edge_away > 0, away_ml_result, home_ml_result),
-           knn_win_result = if_else(knn_win_edge_away > 0, away_ml_result, home_ml_result),
-           rf_win_result = if_else(rf_win_edge_away > 0, away_ml_result, home_ml_result),
-           svm_win_result = if_else(svm_win_edge_away > 0, away_ml_result, home_ml_result),
-           nn_win_result = if_else(nn_win_edge_away > 0, away_ml_result, home_ml_result),
-           xgb_win_result = if_else(xgb_win_edge_away > 0, away_ml_result, home_ml_result),
-           ens_win_result = if_else(ens_win_edge_away > 0, away_ml_result, home_ml_result),
-           lin_spread_result = if_else(lin_spread_edge_away > 0, away_ats_result, home_ats_result),
-           reg_spread_result = if_else(reg_spread_edge_away > 0, away_ats_result, home_ats_result),
-           knn_spread_result = if_else(knn_spread_edge_away > 0, away_ats_result, home_ats_result),
-           rf_spread_result = if_else(rf_spread_edge_away > 0, away_ats_result, home_ats_result),
-           svm_spread_result = if_else(svm_spread_edge_away > 0, away_ats_result, home_ats_result),
-           nn_spread_result = if_else(nn_spread_edge_away > 0, away_ats_result, home_ats_result),
-           xgb_spread_result = if_else(xgb_spread_edge_away > 0, away_ats_result, home_ats_result),
-           ens_spread_result = if_else(ens_spread_edge_away > 0, away_ats_result, home_ats_result),
-           lin_over_result = if_else(lin_over_edge > 0, over_game_result, under_game_result),
-           reg_over_result = if_else(reg_over_edge > 0, over_game_result, under_game_result),
-           knn_over_result = if_else(knn_over_edge > 0, over_game_result, under_game_result),
-           rf_over_result = if_else(rf_over_edge > 0, over_game_result, under_game_result),
-           svm_over_result = if_else(svm_over_edge > 0, over_game_result, under_game_result),
-           nn_over_result = if_else(nn_over_edge > 0, over_game_result, under_game_result),
-           xgb_over_result = if_else(xgb_over_edge > 0, over_game_result, under_game_result),
-           ens_over_result = if_else(ens_over_edge > 0, over_game_result, under_game_result),
-           lin_under_result = if_else(lin_under_edge > 0, under_game_result, over_game_result),
-           reg_under_result = if_else(reg_under_edge > 0, under_game_result, over_game_result),
-           knn_under_result = if_else(knn_under_edge > 0, under_game_result, over_game_result),
-           rf_under_result = if_else(rf_under_edge > 0, under_game_result, over_game_result),
-           svm_under_result = if_else(svm_under_edge > 0, under_game_result, over_game_result),
-           nn_under_result = if_else(nn_under_edge > 0, under_game_result, over_game_result),
-           xgb_under_result = if_else(xgb_under_edge > 0, under_game_result, over_game_result),
-           ens_under_result = if_else(ens_under_edge > 0, under_game_result, over_game_result),
-           log_ml_wager = if_else(log_win_edge_away > 0, away_ml_game_wager, home_ml_game_wager),
-           reg_ml_wager = if_else(reg_win_edge_away > 0, away_ml_game_wager, home_ml_game_wager),
-           knn_ml_wager = if_else(knn_win_edge_away > 0, away_ml_game_wager, home_ml_game_wager),
-           rf_ml_wager = if_else(rf_win_edge_away > 0, away_ml_game_wager, home_ml_game_wager),
-           svm_ml_wager = if_else(svm_win_edge_away > 0, away_ml_game_wager, home_ml_game_wager),
-           nn_ml_wager = if_else(nn_win_edge_away > 0, away_ml_game_wager, home_ml_game_wager),
-           xgb_ml_wager = if_else(xgb_win_edge_away > 0, away_ml_game_wager, home_ml_game_wager),
-           ens_ml_wager = if_else(ens_win_edge_away > 0, away_ml_game_wager, home_ml_game_wager),
+           log_win_result = if_else(log_win_edge_away > 0,
+                                    away_ml_result, home_ml_result),
+           reg_win_result = if_else(reg_win_edge_away > 0,
+                                    away_ml_result, home_ml_result),
+           knn_win_result = if_else(knn_win_edge_away > 0,
+                                    away_ml_result, home_ml_result),
+           rf_win_result = if_else(rf_win_edge_away > 0,
+                                   away_ml_result, home_ml_result),
+           svm_win_result = if_else(svm_win_edge_away > 0,
+                                    away_ml_result, home_ml_result),
+           nn_win_result = if_else(nn_win_edge_away > 0,
+                                   away_ml_result, home_ml_result),
+           xgb_win_result = if_else(xgb_win_edge_away > 0,
+                                    away_ml_result, home_ml_result),
+           ens_win_result = if_else(ens_win_edge_away > 0,
+                                    away_ml_result, home_ml_result),
+           lin_spread_result = if_else(lin_spread_edge_away > 0,
+                                       away_ats_result, home_ats_result),
+           reg_spread_result = if_else(reg_spread_edge_away > 0,
+                                       away_ats_result, home_ats_result),
+           knn_spread_result = if_else(knn_spread_edge_away > 0,
+                                       away_ats_result, home_ats_result),
+           rf_spread_result = if_else(rf_spread_edge_away > 0,
+                                      away_ats_result, home_ats_result),
+           svm_spread_result = if_else(svm_spread_edge_away > 0,
+                                       away_ats_result, home_ats_result),
+           nn_spread_result = if_else(nn_spread_edge_away > 0,
+                                      away_ats_result, home_ats_result),
+           xgb_spread_result = if_else(xgb_spread_edge_away > 0,
+                                       away_ats_result, home_ats_result),
+           ens_spread_result = if_else(ens_spread_edge_away > 0,
+                                       away_ats_result, home_ats_result),
+           lin_over_result = if_else(lin_over_edge > 0,
+                                     over_game_result, under_game_result),
+           reg_over_result = if_else(reg_over_edge > 0,
+                                     over_game_result, under_game_result),
+           knn_over_result = if_else(knn_over_edge > 0,
+                                     over_game_result, under_game_result),
+           rf_over_result = if_else(rf_over_edge > 0,
+                                    over_game_result, under_game_result),
+           svm_over_result = if_else(svm_over_edge > 0,
+                                     over_game_result, under_game_result),
+           nn_over_result = if_else(nn_over_edge > 0,
+                                    over_game_result, under_game_result),
+           xgb_over_result = if_else(xgb_over_edge > 0,
+                                     over_game_result, under_game_result),
+           ens_over_result = if_else(ens_over_edge > 0,
+                                     over_game_result, under_game_result),
+           lin_under_result = if_else(lin_under_edge > 0,
+                                      under_game_result, over_game_result),
+           reg_under_result = if_else(reg_under_edge > 0,
+                                      under_game_result, over_game_result),
+           knn_under_result = if_else(knn_under_edge > 0,
+                                      under_game_result, over_game_result),
+           rf_under_result = if_else(rf_under_edge > 0,
+                                     under_game_result, over_game_result),
+           svm_under_result = if_else(svm_under_edge > 0,
+                                      under_game_result, over_game_result),
+           nn_under_result = if_else(nn_under_edge > 0,
+                                     under_game_result, over_game_result),
+           xgb_under_result = if_else(xgb_under_edge > 0,
+                                      under_game_result, over_game_result),
+           ens_under_result = if_else(ens_under_edge > 0,
+                                      under_game_result, over_game_result),
+           log_ml_wager = if_else(log_win_edge_away > 0,
+                                  away_ml_game_wager, home_ml_game_wager),
+           reg_ml_wager = if_else(reg_win_edge_away > 0,
+                                  away_ml_game_wager, home_ml_game_wager),
+           knn_ml_wager = if_else(knn_win_edge_away > 0,
+                                  away_ml_game_wager, home_ml_game_wager),
+           rf_ml_wager = if_else(rf_win_edge_away > 0,
+                                 away_ml_game_wager, home_ml_game_wager),
+           svm_ml_wager = if_else(svm_win_edge_away > 0,
+                                  away_ml_game_wager, home_ml_game_wager),
+           nn_ml_wager = if_else(nn_win_edge_away > 0,
+                                 away_ml_game_wager, home_ml_game_wager),
+           xgb_ml_wager = if_else(xgb_win_edge_away > 0,
+                                  away_ml_game_wager, home_ml_game_wager),
+           ens_ml_wager = if_else(ens_win_edge_away > 0,
+                                  away_ml_game_wager, home_ml_game_wager),
            cume_win = cumsum(reg_win_result),
            cume_spread = cumsum(ens_spread_result),
            cume_over = cumsum(ens_over_result),
@@ -1043,7 +1108,8 @@ model_outputs %>%
             cume_win = 0) %>%
     ggplot(aes(x = game_date, y = cume_win, group = season_year)) +
     geom_line() +
-    geom_smooth(method = "lm", se = FALSE, linetype = "dashed", color = "dodgerblue") +
+    geom_smooth(method = "lm", se = FALSE,
+                linetype = "dashed", color = "dodgerblue") +
     labs(title = "Betting Performance by Season",
          x = "",
          y = "Units Won") +
