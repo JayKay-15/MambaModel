@@ -339,7 +339,8 @@ load_model_rds_files <- function(directory_path) {
 }
 
 # function to make predictions
-make_predictions <- function(model_type, model_list, input_data, output_col_suffix) {
+make_predictions <- function(model_type, model_list, input_data,
+                             output_col_suffix) {
     cols <- character(0)
     
     for (i in seq_along(model_list[[model_type]])) {
@@ -432,40 +433,49 @@ under_key <- 1.9372166 # ensemble (lin, reg, svm, nn, xgb)
 
 # add ensemble
 bets_final <- slate_final %>%
-    mutate(ens_win_away = rowMeans(select(.,log_win_away,reg_win_away,
+    mutate(
+        ens_win_away = rowMeans(select(.,log_win_away,reg_win_away,
                                           svm_win_away,nn_win_away,
                                           xgb_win_away), na.rm = TRUE),
-           ens_team_score = rowMeans(select(.,lin_team_score,reg_team_score,
+        ens_team_score = rowMeans(select(.,lin_team_score,reg_team_score,
                                             svm_team_score,nn_team_score,
                                             xgb_team_score), na.rm = TRUE),
-           ens_opp_score = rowMeans(select(.,lin_opp_score,reg_opp_score,
+        ens_opp_score = rowMeans(select(.,lin_opp_score,reg_opp_score,
                                            svm_opp_score,nn_opp_score,
                                            xgb_opp_score), na.rm = TRUE),
-           reg_win_edge_away = reg_win_away - away_implied_prob,
-           ens_spread_edge_away = (ens_team_score - ens_opp_score) + away_spread,
-           moneyline_bet = if_else(abs(reg_win_edge_away) >= moneyline_key &
-                                       reg_win_edge_away > 0,
+        reg_win_edge_away = reg_win_away - away_implied_prob,
+        ens_spread_edge_away = (ens_team_score - ens_opp_score) + away_spread,
+        moneyline_bet = if_else(abs(reg_win_edge_away) >= moneyline_key &
+                                    reg_win_edge_away > 0,
                                    paste0(away_team_name," ", away_moneyline),
-                                   if_else(abs(reg_win_edge_away) >= moneyline_key &
-                                               reg_win_edge_away < 0,
-                                           paste0(home_team_name, " ", home_moneyline), NA), NA),
-           spread_bet = if_else(abs(ens_spread_edge_away) >= spread_key &
+                                if_else(abs(reg_win_edge_away) >= moneyline_key
+                                        & reg_win_edge_away < 0,
+                                        paste0(home_team_name, " ",
+                                               home_moneyline), NA), NA),
+        spread_bet = if_else(abs(ens_spread_edge_away) >= spread_key &
                                     ens_spread_edge_away > 0,
                                 paste0(away_team_name," ", away_spread),
-                                if_else(abs(ens_spread_edge_away) >= spread_key &
-                                            ens_spread_edge_away < 0,
-                                        paste0(home_team_name, " ", home_spread), NA), NA),
-           over_under_bet = case_when(
-               (ens_team_score + ens_opp_score) > over_under &
-                   ((ens_team_score + ens_opp_score) - over_under) > over_key ~ paste0("over ", over_under),
-               (ens_team_score + ens_opp_score) < over_under &
-                   (over_under - (ens_team_score + ens_opp_score)) > under_key ~ paste0("under ", over_under),
-               .default = as.character(NA))
-           ) %>%
+                             if_else(abs(ens_spread_edge_away) >= spread_key &
+                                         ens_spread_edge_away < 0,
+                                     paste0(home_team_name, " ", home_spread),
+                                     NA), NA),
+        over_under_bet = case_when(
+            (ens_team_score + ens_opp_score) > over_under &
+                ((ens_team_score + ens_opp_score) - over_under) >
+                over_key ~ paste0("over ", over_under),
+            (ens_team_score + ens_opp_score) < over_under &
+                (over_under - (ens_team_score + ens_opp_score)) >
+                under_key ~ paste0("under ", over_under),
+            .default = as.character(NA))
+    ) %>%
     select(game_date:over_under, reg_win_away, ens_team_score, ens_opp_score,
-           reg_win_edge_away, ens_spread_edge_away, moneyline_bet, spread_bet, over_under_bet) %>%
-    filter(!is.na(moneyline_bet) | !is.na(spread_bet) | !is.na(over_under_bet)) %>%
+           reg_win_edge_away, ens_spread_edge_away,
+           moneyline_bet, spread_bet, over_under_bet) %>%
+    filter(!is.na(moneyline_bet) | !is.na(spread_bet) |
+               !is.na(over_under_bet)) %>%
     select(game_date:home_team_name, moneyline_bet, spread_bet, over_under_bet)
+
+bets_final
 
 
 
