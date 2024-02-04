@@ -4,7 +4,7 @@ library(tidyverse)
 library(data.table)
 library(nbastatR)
 
-options(scipen = 999)
+options(scipen = 999999)
 
 plays_db <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db"), "Plays") %>%
     collect() %>%
