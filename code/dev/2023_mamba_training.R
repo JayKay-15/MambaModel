@@ -166,9 +166,9 @@ test <- nba_final %>%
            away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
-model_outputs <- nba_final %>%
-    filter(season_year > 2021) %>%
-    select(season_year:home_implied_prob)
+# model_outputs <- nba_final %>%
+#     filter(season_year > 2021) %>%
+#     select(season_year:home_implied_prob)
 
 # highly correlated features removed
 train <- train %>% select(-all_of(cor_cols))
@@ -1196,6 +1196,10 @@ for (i in seq_along(edge_columns)) {
     # Store values in the result data frame
     result_df <- bind_rows(result_df, max_value)
 }
+
+
+
+
 
 
 
