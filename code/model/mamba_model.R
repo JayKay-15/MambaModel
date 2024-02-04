@@ -5,6 +5,8 @@ library(RSQLite)
 library(DBI)
 library(theoddsapi)
 
+options(scipen = 999999)
+set.seed(214)
 
 #### all functions for mamba model ----
 # function for odds
@@ -405,6 +407,19 @@ mamba_home <- mamba_clean %>%
 directory_path <- "../NBAdb/models/models_trained/"
 model_list <- invisible(load_model_rds_files(directory_path))
 
+model_list$win_models <- model_list$win_models[c("log_win", "reg_win",
+                                                 "knn_win", "rf_win",
+                                                 "svm_win", "nn_win",
+                                                 "xgb_win")]
+model_list$team_models <- model_list$team_models[c("lin_team", "reg_team",
+                                                   "knn_team", "rf_team",
+                                                   "svm_team", "nn_team",
+                                                   "xgb_team")]
+model_list$opp_models <- model_list$opp_models[c("lin_opp", "reg_opp",
+                                                 "knn_opp","rf_opp",
+                                                 "svm_opp", "nn_opp",
+                                                 "xgb_opp")]
+
 # mamba slate for predictions
 slate_mamba <- slate_today %>%
     left_join(mamba_away, by = c("away_team_name" = "team_name")) %>%
@@ -478,7 +493,35 @@ bets_final <- slate_final %>%
 bets_final
 
 
+results_book <- slate_final %>%
+    mutate(
+        log_win_home = 1-log_win_away,
+        reg_win_home = 1-reg_win_away,
+        knn_win_home = 1-knn_win_away,
+        rf_win_home = 1-rf_win_away,
+        svm_win_home = 1-svm_win_away,
+        nn_win_home = 1-nn_win_away,
+        xgb_win_home = 1-xgb_win_away,
+        ens_win_away = rowMeans(select(.,log_win_away,reg_win_away,
+                                       svm_win_away,nn_win_away,
+                                       xgb_win_away), na.rm = TRUE),
+        ens_win_home = 1-ens_win_away,
+        ens_team_score = rowMeans(select(.,lin_team_score,reg_team_score,
+                                         svm_team_score,nn_team_score,
+                                         xgb_team_score), na.rm = TRUE),
+        ens_opp_score = rowMeans(select(.,lin_opp_score,reg_opp_score,
+                                        svm_opp_score,nn_opp_score,
+                                        xgb_opp_score), na.rm = TRUE)
+    ) %>%
+    select(game_id, log_win_away, log_win_home, reg_win_away, reg_win_home,
+           knn_win_away, knn_win_home, rf_win_away, rf_win_home,
+           svm_win_away, svm_win_home, nn_win_away, nn_win_home,
+           xgb_win_away, xgb_win_home, ens_win_away, ens_win_home,
+           lin_team_score:xgb_team_score, ens_team_score,
+           lin_opp_score:xgb_opp_score, ens_opp_score)
 
+
+    
 
 
 
