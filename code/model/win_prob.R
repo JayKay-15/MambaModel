@@ -4,7 +4,10 @@ library(tidyverse)
 library(lubridate)
 library(caTools)
 library(caret)
-library(tidymodels)
+# library(tidymodels)
+
+options(scipen = 999999)
+
 # pbp <- pbp22 %>% select(-c(locX:locY)) %>% filter(game_id == 22100001)
 # write.csv(pbp, "/Users/Jesse/Desktop/pbp.csv")
 # pbp <- read.csv(file = "/Users/Jesse/Desktop/pbp.csv")
@@ -266,3 +269,144 @@ ggplot(data = plot_data, aes(x = secs_passed_game, y = away_win_prob)) +
          x = "Minutes",
          y = "Away Win Probability") +
     theme_bw()
+
+
+
+
+
+
+#### Newest PBP Model ----
+
+game_logs <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(),
+                                    "../nba_sql_db/nba_db"), "game_logs_adj") %>% 
+    collect() %>%
+    mutate(game_date = as_date(game_date, origin ="1970-01-01")) %>%
+    select(game_id, game_date, team_loc, team_name, opp_name, team_winner) %>%
+    mutate(game_id = as.numeric(game_id))
+
+pbp <- readRDS("../MambaMetrics/pbp_files/pbp_2019_2023.rds")
+# wp <- readRDS("../MambaMetrics/pbp_files/wp_2019_2023.rds")
+
+pbp_wp <- pbp %>%
+    mutate(game_id = as.numeric(game_id)) %>%
+    # left_join(wp) %>%
+    left_join(game_logs %>% select(game_id, team_name, opp_name, team_winner)) %>%
+    distinct() %>%
+    separate(
+        "pctimestring",
+        into = c("minutes_quarter", "seconds_quarter"),
+        sep = "\\:",
+        remove = F
+    ) %>%
+    mutate(
+        across(c(minutes_quarter, seconds_quarter,
+                 period, eventnum), as.numeric),
+        seconds_remaining_quarter = (minutes_quarter*60) + seconds_quarter,
+        seconds_start_quarter = case_when(                                                                        
+            period %in% c(1:5) ~ (period - 1) * 720,
+            TRUE ~ 2880 + (period - 5) * 300),
+        seconds_passed_quarter = ifelse(period %in% c(1:4),
+                                        720 - seconds_remaining_quarter,
+                                        300 - seconds_remaining_quarter),
+        seconds_passed_game = seconds_passed_quarter + seconds_start_quarter,
+        seconds_remaining_game = 2880 - seconds_passed_game
+    ) %>%
+    select(away_team = team_name, home_team = opp_name, team_winner,
+           game_id:period, seconds_remaining_quarter, seconds_remaining_game,
+           homedescription:visitordescription, 
+           person1type:player3_team_abbreviation) %>%
+    arrange(game_id, desc(seconds_remaining_game)) %>%
+    filter(eventmsgtype != 18) %>%
+    group_by(game_id) %>%
+    mutate(eventnum = row_number()) %>%
+    mutate(
+        away_shot_points = case_when(
+            eventmsgtype == 3 & !str_detect(visitordescription, "MISS") ~ 1,                               
+            eventmsgtype == 1 & str_detect(visitordescription, "3PT") ~ 3,                                 
+            eventmsgtype == 1 & !str_detect(visitordescription, "3PT") ~ 2,
+            TRUE ~ 0),
+        home_shot_points = case_when(
+            eventmsgtype == 3 & !str_detect(homedescription, "MISS") ~ 1,
+            eventmsgtype == 1 & str_detect(homedescription, "3PT") ~ 3,
+            eventmsgtype == 1 & !str_detect(homedescription, "3PT") ~ 2,
+            TRUE ~ 0),
+        away_points = cumsum(away_shot_points),
+        home_points = cumsum(home_shot_points),
+        away_margin = away_points-home_points,
+        elapsed_share = (2880 - seconds_remaining_game) / 2880,
+        diff_time_ratio = away_margin / (exp(-4 * elapsed_share)),
+        possession = case_when(eventmsgtype %in% c(1, 2, 5) ~ 1,
+                               eventmsgtype == 3 & eventmsgactiontype %in% c(12, 15) ~ 1,
+                               TRUE ~ 0),
+        team_possession = case_when(person1type == 4 ~ "home",
+                                    person1type == 5 ~ "away"),
+        poss_start = case_when(
+            eventmsgtype == 4 & is.na(player1_team_abbreviation) &
+                seconds_remaining_quarter == 0 ~ 0,
+            eventmsgtype %in% c(1, 4, 5, 10, 12) ~ 1,
+            eventmsgtype == 3 & eventmsgactiontype %in% c(12, 15) ~ 1,
+            eventmsgtype == 6 & eventmsgactiontype %in% c(4, 26) ~ 1,
+            eventmsgtype == 7 & eventmsgactiontype %in% c(2) ~ 1,
+            TRUE ~ 0),
+        poss = if_else(poss_start == 1, team_possession, NA)
+    ) %>% ungroup()
+
+pbp_wp <- pbp_wp %>%
+    # fill(., poss) %>%
+    select(game_id, team_winner, seconds_remaining_quarter, seconds_remaining_game,
+           away_margin, diff_time_ratio) # excluding poss until fix
+
+train <- pbp_wp %>%
+    filter(!is.na(team_winner)) %>% # why are these two games missing
+    # filter(!is.na(poss)) %>%
+    filter(grepl("^(218|219|220|221)", game_id))
+
+test <- pbp_wp %>%
+    # filter(!is.na(poss)) %>%
+    filter(grepl("^(222|223)", game_id))
+
+
+
+
+set.seed(214)
+
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
+                     classProbs = T, summaryFunction = twoClassSummary)
+
+log_win <- train(as.factor(team_winner) ~., data = train[-1],
+                 trControl = ctrl,
+                 method = "glm",
+                 metric = "ROC",
+                 family = "binomial")
+
+win_pred <- predict(log_win, test[-1], type = "prob")
+
+plot_data <- test %>% 
+    bind_cols(win_pred %>% select(win)) %>%
+    filter(game_id == "22200015") %>% 
+    mutate(game_min = (2880 - seconds_remaining_game)/60,
+           away_win_prob = ifelse(game_min == max(game_min) & away_margin > 0, 1,
+                                  ifelse(game_min == max(game_min) & away_margin < 0, 0, win)))
+
+
+score_labels <- plot_data[seq(1, nrow(plot_data), 20), ] %>%
+    select(game_min, away_margin)
+
+
+ggplot(data = plot_data, aes(x = game_min, y = away_win_prob)) +
+    geom_line() +
+    scale_x_continuous(limits = c(0,48), breaks = seq(0, 48, 6)) +
+    scale_y_continuous(limits = c(0, 1), labels = scales::percent_format(accuracy = 1)) +
+    geom_text(data = score_labels, aes(x = game_min, y = 0.1, label = away_margin), color = "darkblue") +
+    labs(title = "Ugly Win Probability Chart",
+         x = "Minutes",
+         y = "Away Win Probability") +
+    theme_bw()
+
+
+
+
+
+
+
+
