@@ -1203,3 +1203,84 @@ for (i in seq_along(edge_columns)) {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+# Create an empty data frame to store results
+result_df <- model_outputs
+
+# Specify column names
+edge_columns <- names(model_outputs %>% 
+                          select(ends_with("spread_edge") | 
+                                     ends_with("over_edge") | 
+                                     ends_with("under_edge")
+                          ))
+result_columns <- names(model_outputs %>% 
+                            select(ends_with("spread_result") | 
+                                       ends_with("over_result") | 
+                                       ends_with("under_result")
+                            ))
+
+# Loop through columns
+for (i in seq_along(edge_columns)) {
+    model_stats <- model_outputs %>%
+        select(edge_columns[i], result_columns[i]) %>%
+        arrange(desc(.[[1]])) %>% # arrange(desc(select(.,ends_with("edge"))))
+        mutate(cume = cumsum(.[[2]]),
+               games = row_number(),
+               roi = round((cume /(games*1.1))*100,2),
+               win_pct = (cumsum(if_else(.[[1]] > 0 & .[[2]] > 0, 1, 0)))/
+                   (cumsum(if_else(.[[1]] > 0 & .[[2]] != 0, 1, 0))),
+               across(everything(), as.numeric)
+        ) %>%
+        select(edge_columns[i], cume, games, roi, win_pct)
+    
+    colnames(model_stats) <- c(edge_columns[i],
+                               paste0(sub("_edge$", "", edge_columns[i]),"_cume"),
+                               paste0(sub("_edge$", "", edge_columns[i]),"_games"),
+                               paste0(sub("_edge$", "", edge_columns[i]),"_roi"),
+                               paste0(sub("_edge$", "", edge_columns[i]),"_win_pct")
+    )
+    
+    result_df <- result_df %>%
+        arrange(desc(.[[1]])) %>%
+        bind_cols(model_stats)
+}
+
+
+
+
+
+
+
+model_stats <- model_outputs %>%
+    select(edge_columns[1], result_columns[1]) %>%
+    arrange(desc(.[[1]])) %>% # arrange(desc(select(.,ends_with("edge"))))
+    mutate(cume = cumsum(.[[2]]),
+           games = row_number(),
+           roi = round((cume /(games*1.1))*100,2),
+           win_pct = (cumsum(if_else(.[[1]] > 0 & .[[2]] > 0, 1, 0)))/
+               (cumsum(if_else(.[[1]] > 0 & .[[2]] != 0, 1, 0))),
+           across(everything(), as.numeric)
+    ) %>%
+    select(edge_columns[1], cume, games, roi, win_pct)
+
+colnames(model_stats) <- c(edge_columns[1],
+                         paste0(sub("_edge$", "", edge_columns[1]),"_cume"),
+                         paste0(sub("_edge$", "", edge_columns[1]),"_games"),
+                         paste0(sub("_edge$", "", edge_columns[1]),"_roi"),
+                         paste0(sub("_edge$", "", edge_columns[1]),"_win_pct")
+                         )
+
+model_outputs_join <- model_outputs %>%
+    left_join(model_stats)
+
+
