@@ -23,6 +23,7 @@ library(ggfortify) # autoplot
 # library(corrplot) # correlations
 # library(corrgram) # correlations
 
+options(scipen = 999)
 # Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2)
 
 # https://www.kaggle.com/code/pelkoja/visual-xgboost-tuning-with-caret/report
@@ -1210,10 +1211,6 @@ for (i in seq_along(edge_columns)) {
 
 
 
-
-
-
-
 # Create an empty data frame to store results
 result_df <- model_outputs
 
@@ -1232,26 +1229,26 @@ result_columns <- names(model_outputs %>%
 # Loop through columns
 for (i in seq_along(edge_columns)) {
     model_stats <- model_outputs %>%
-        select(edge_columns[i], result_columns[i]) %>%
-        arrange(desc(.[[1]])) %>% # arrange(desc(select(.,ends_with("edge"))))
-        mutate(cume = cumsum(.[[2]]),
+        # select(edge_columns[i], result_columns[i]) %>%
+        arrange(desc(select(., matches(edge_columns[i])))) %>%
+        mutate(cume = cumsum(.data[[result_columns[[i]]]]),
                games = row_number(),
                roi = round((cume /(games*1.1))*100,2),
-               win_pct = (cumsum(if_else(.[[1]] > 0 & .[[2]] > 0, 1, 0)))/
-                   (cumsum(if_else(.[[1]] > 0 & .[[2]] != 0, 1, 0))),
-               across(everything(), as.numeric)
+               win_pct = (cumsum(if_else(.data[[result_columns[[i]]]] > 0, 1, 0)))/
+                   (cumsum(if_else(.data[[result_columns[[i]]]] != 0, 1, 0))),
+               across((cume:win_pct), as.numeric)
         ) %>%
-        select(edge_columns[i], cume, games, roi, win_pct)
+        select(cume, games, roi, win_pct)
     
-    colnames(model_stats) <- c(edge_columns[i],
-                               paste0(sub("_edge$", "", edge_columns[i]),"_cume"),
-                               paste0(sub("_edge$", "", edge_columns[i]),"_games"),
-                               paste0(sub("_edge$", "", edge_columns[i]),"_roi"),
-                               paste0(sub("_edge$", "", edge_columns[i]),"_win_pct")
+    colnames(model_stats) <- c(
+        paste0(sub("_edge$", "", edge_columns[i]),"_cume"),
+        paste0(sub("_edge$", "", edge_columns[i]),"_games"),
+        paste0(sub("_edge$", "", edge_columns[i]),"_roi"),
+        paste0(sub("_edge$", "", edge_columns[i]),"_win_pct")
     )
     
     result_df <- result_df %>%
-        arrange(desc(.[[1]])) %>%
+        arrange(desc(select(., matches(edge_columns[i])))) %>%
         bind_cols(model_stats)
 }
 
@@ -1261,26 +1258,128 @@ for (i in seq_along(edge_columns)) {
 
 
 
-model_stats <- model_outputs %>%
-    select(edge_columns[1], result_columns[1]) %>%
-    arrange(desc(.[[1]])) %>% # arrange(desc(select(.,ends_with("edge"))))
-    mutate(cume = cumsum(.[[2]]),
-           games = row_number(),
-           roi = round((cume /(games*1.1))*100,2),
-           win_pct = (cumsum(if_else(.[[1]] > 0 & .[[2]] > 0, 1, 0)))/
-               (cumsum(if_else(.[[1]] > 0 & .[[2]] != 0, 1, 0))),
-           across(everything(), as.numeric)
-    ) %>%
-    select(edge_columns[1], cume, games, roi, win_pct)
 
-colnames(model_stats) <- c(edge_columns[1],
-                         paste0(sub("_edge$", "", edge_columns[1]),"_cume"),
-                         paste0(sub("_edge$", "", edge_columns[1]),"_games"),
-                         paste0(sub("_edge$", "", edge_columns[1]),"_roi"),
-                         paste0(sub("_edge$", "", edge_columns[1]),"_win_pct")
-                         )
+# results book
+results_book <- model_outputs %>%
+    mutate(
+        ens_win_away = rowMeans(select(.,log_win_away,reg_win_away,
+                                       svm_win_away,nn_win_away,
+                                       xgb_win_away), na.rm = TRUE),
+        ens_win_home = 1 - ens_win_away,
+        ens_team_score = rowMeans(select(.,lin_team_score,reg_team_score,
+                                         svm_team_score,nn_team_score,
+                                         xgb_team_score), na.rm = TRUE),
+        ens_opp_score = rowMeans(select(.,lin_opp_score,reg_opp_score,
+                                        svm_opp_score,nn_opp_score,
+                                        xgb_opp_score), na.rm = TRUE),
+        away_ml_result = case_when(
+            away_moneyline > 0 & team_winner == "win" ~ away_moneyline/100,
+            away_moneyline > 0 & team_winner == "loss" ~ -1,
+            away_moneyline < 0 & team_winner == "win" ~ 1,
+            away_moneyline < 0 & team_winner == "loss" ~ away_moneyline/100),
+        home_ml_result = case_when(
+            home_moneyline > 0 & team_winner == "loss" ~ home_moneyline/100,
+            home_moneyline > 0 & team_winner == "win" ~ -1,
+            home_moneyline < 0 & team_winner == "loss" ~ 1,
+            home_moneyline < 0 & team_winner == "win" ~ home_moneyline/100),
+        away_ats_result = if_else((plus_minus + away_spread) == 0, 0,
+                                  if_else((plus_minus + away_spread) > 0,
+                                          1, -1.1)),
+        home_ats_result = if_else((plus_minus + home_spread) == 0, 0,
+                                  if_else((-plus_minus + home_spread) > 0,
+                                          1, -1.1)),
+        over_game_result = if_else((team_score + opp_score) == 0, 0,
+                                   if_else((team_score + opp_score) > over_under,
+                                           1, -1.1)),
+        under_game_result = if_else((team_score + opp_score) == 0, 0,
+                                    if_else((team_score + opp_score) < over_under,
+                                            1, -1.1))
+    )
 
-model_outputs_join <- model_outputs %>%
-    left_join(model_stats)
+win_columns <- names(results_book %>% select(ends_with("win_away")))
+team_columns <- names(results_book %>% select(ends_with("_team_score")))
+opp_columns <- names(results_book %>% select(ends_with("_opp_score")))
 
 
+for (i in seq_along(win_columns)) {
+    model_edges <- results_book %>%
+        mutate(
+            win_edge = abs(.data[[win_columns[[i]]]] - away_implied_prob),
+            spread_edge = abs((.data[[team_columns[[i]]]] - .data[[opp_columns[[i]]]]) + away_spread),
+            over_edge = (.data[[team_columns[[i]]]] + .data[[opp_columns[[i]]]]) - over_under,
+            under_edge = over_under - (.data[[team_columns[[i]]]] + .data[[opp_columns[[i]]]]),
+            win_result = if_else(.data[[win_columns[[i]]]] - away_implied_prob > 0,
+                                 away_ml_result, home_ml_result),
+            spread_result = if_else((.data[[team_columns[[i]]]] - .data[[opp_columns[[i]]]]) + away_spread > 0,
+                                    away_ats_result, home_ats_result),
+            over_under_result = if_else(over_edge > 0,
+                                  over_game_result, under_game_result),
+            ml_wager = if_else(.data[[win_columns[[i]]]] - away_implied_prob > 0,
+                               ifelse(away_moneyline < 100,
+                                      away_moneyline/-100, 1),
+                               ifelse(home_moneyline < 100,
+                                      home_moneyline/-100, 1))
+        ) %>%
+        select(win_edge:ml_wager)
+    
+    colnames(model_edges) <- c(
+        paste0(sub("_win_away$", "", win_columns[i]),"_win_edge"),
+        paste0(sub("_team_score$", "", team_columns[i]),"_spread_edge"),
+        paste0(sub("_team_score$", "", team_columns[i]),"_over_edge"),
+        paste0(sub("_team_score$", "", team_columns[i]),"_under_edge"),
+        paste0(sub("_win_away$", "", win_columns[i]),"_win_result"),
+        paste0(sub("_team_score$", "", team_columns[i]),"_spread_result"),
+        paste0(sub("_team_score$", "", team_columns[i]),"_over_under_result"),
+        paste0(sub("_win_away$", "", win_columns[i]),"_ml_wager")
+    )
+    
+    edge_columns <- names(model_edges %>% select(ends_with("edge")))
+    result_columns <- names(model_edges %>% select(ends_with("result")))
+    result_columns <- c(result_columns, tail(result_columns, 1))
+    
+    # Loop through columns
+    for (h in seq_along(edge_columns)) {
+        model_stats <- model_edges %>%
+            arrange(desc(select(., matches(edge_columns[h])))) %>%
+            mutate(
+                cume = cumsum(.data[[result_columns[[h]]]]),
+                games = row_number(),
+                roi = case_when(
+                    str_ends(edge_columns[[h]], "_win_edge") ~ round((cume / cumsum(.[[8]])) * 100, 2),
+                    !str_ends(edge_columns[[h]], "_win_edge") ~ round((cume / (games * 1.1)) * 100, 2)
+                ),
+                win_pct = (cumsum(if_else(.data[[result_columns[[h]]]] > 0, 1, 0)))/
+                    (cumsum(if_else(.data[[result_columns[[h]]]] != 0, 1, 0))),
+                across((cume:win_pct), as.numeric)
+            ) %>%
+            select(cume, games, roi, win_pct)
+        
+        colnames(model_stats) <- c(
+            paste0(sub("_edge$", "", edge_columns[h]),"_cume"),
+            paste0(sub("_edge$", "", edge_columns[h]),"_games"),
+            paste0(sub("_edge$", "", edge_columns[h]),"_roi"),
+            paste0(sub("_edge$", "", edge_columns[h]),"_win_pct")
+        )
+        
+        model_edges <- model_edges %>%
+            arrange(desc(select(., matches(edge_columns[h])))) %>%
+            bind_cols(model_stats)
+    }
+    
+    results_book <- results_book %>%
+        bind_cols(model_edges)
+}
+
+
+
+
+
+
+
+### break into 3 or 4 blocks
+# 1) prep - add ensemble/results prep
+# 2) wagers, edges, results - drop wagers/results?
+# 3) model stats - cume, games, roi, win_pct
+# 4) fix processing/viz
+# 5) add model stats to predictions - match closest edge
+# 6) over/under result -- now showing the same
