@@ -516,9 +516,8 @@ results_book <- slate_final %>%
     select(game_id, log_win_away, log_win_home, reg_win_away, reg_win_home,
            knn_win_away, knn_win_home, rf_win_away, rf_win_home,
            svm_win_away, svm_win_home, nn_win_away, nn_win_home,
-           xgb_win_away, xgb_win_home, ens_win_away, ens_win_home,
-           lin_team_score:xgb_team_score, ens_team_score,
-           lin_opp_score:xgb_opp_score, ens_opp_score)
+           xgb_win_away, xgb_win_home, lin_team_score:xgb_team_score,
+           lin_opp_score:xgb_opp_score)
 
 
     
