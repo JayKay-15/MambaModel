@@ -56,13 +56,22 @@ nba_final <- nba_final %>%
     mutate(game_date = as_date(game_date, origin ="1970-01-01"),
            team_winner = factor(team_winner, levels = c("win", "loss")))
 
+# starter_fic <- read_csv("/Users/jesse/Desktop/starter_fic.csv")
+# nba_final_fic <- nba_final %>%
+#     left_join(starter_fic)
+# 
+# saveRDS(nba_final_fic, "/Users/jesse/Desktop/nba_final_fic.rds")
+
+nba_final_fic <- read_rds("/Users/jesse/Desktop/nba_final_fic.rds")
+nba_final <- nba_final_fic
+
 # correlations ----
 set.seed(214)
 
 # feature correlations
 cor_df <- nba_final %>%
     select(is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
-           away_fgm:home_opp_pct_uast_fgm) %>%
+           away_fgm:home_fic) %>%
     select(-contains("_rating"))
 
 # check for extreme correlation
@@ -86,7 +95,7 @@ summary(cor_mx_new[upper.tri(cor_mx_new)])
 # correlations - win
 model_win_all <- nba_final %>%
     select(team_winner, is_b2b_first:opp_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
+           away_implied_prob, away_fgm:home_fic) %>%
     select(-contains("_rating")) %>%
     mutate(team_winner = if_else(team_winner == "win", 1, 0))
 
@@ -109,7 +118,7 @@ cor_mx
 # correlations - team score
 model_ts_all <- nba_final %>%
     select(team_score, is_b2b_first:opp_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
+           away_implied_prob, away_fgm:home_fic) %>%
     select(-contains("_rating"))
 
 # near zero variables
@@ -131,7 +140,7 @@ cor_mx
 # correlations - opp score
 model_os_all <- nba_final %>%
     select(opp_score, is_b2b_first:opp_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
+           away_implied_prob, away_fgm:home_fic) %>%
     select(-contains("_rating"))
 
 # near zero variables
@@ -158,13 +167,13 @@ rm(list=ls()[! ls() %in% c("nba_final", "cor_cols")])
 train <- nba_final %>%
     filter(season_year <= 2021) %>%
     select(team_winner, is_b2b_first:opp_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
+           away_implied_prob, away_fgm:home_fic) %>%
     select(-contains("_rating"))
 
 test <- nba_final %>%
     filter(season_year > 2021) %>%
     select(team_winner, is_b2b_first:opp_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
+           away_implied_prob, away_fgm:home_fic) %>%
     select(-contains("_rating"))
 
 # model_outputs <- nba_final %>%
