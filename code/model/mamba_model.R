@@ -333,6 +333,13 @@ load_model_rds_files <- function(directory_path) {
     opp_models <- loaded_data[grep("opp", names(loaded_data), ignore.case = TRUE)]
     pre_proc_val <- loaded_data[["pre_proc_val"]]
     
+    win_models <-win_models[c("log_win", "reg_win", "knn_win", "rf_win",
+                              "svm_win", "nn_win", "xgb_win")]
+    team_models <- team_models[c("lin_team", "reg_team", "knn_team", "rf_team",
+                                 "svm_team", "nn_team", "xgb_team")]
+    opp_models <- opp_models[c("lin_opp", "reg_opp", "knn_opp", "rf_opp",
+                               "svm_opp", "nn_opp", "xgb_opp")]
+    
     # Return a list containing the three sublists
     return(list(win_models = win_models,
                 team_models = team_models,
@@ -406,19 +413,6 @@ mamba_home <- mamba_clean %>%
 #### prepare for predictions ----
 directory_path <- "../NBAdb/models/models_trained/"
 model_list <- invisible(load_model_rds_files(directory_path))
-
-model_list$win_models <- model_list$win_models[c("log_win", "reg_win",
-                                                 "knn_win", "rf_win",
-                                                 "svm_win", "nn_win",
-                                                 "xgb_win")]
-model_list$team_models <- model_list$team_models[c("lin_team", "reg_team",
-                                                   "knn_team", "rf_team",
-                                                   "svm_team", "nn_team",
-                                                   "xgb_team")]
-model_list$opp_models <- model_list$opp_models[c("lin_opp", "reg_opp",
-                                                 "knn_opp","rf_opp",
-                                                 "svm_opp", "nn_opp",
-                                                 "xgb_opp")]
 
 # mamba slate for predictions
 slate_mamba <- slate_today %>%
