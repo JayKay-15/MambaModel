@@ -277,13 +277,6 @@ ggplot(data = plot_data, aes(x = secs_passed_game, y = away_win_prob)) +
 
 #### Newest PBP Model ----
 
-game_logs <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(),
-                                    "../nba_sql_db/nba_db"), "game_logs_adj") %>% 
-    collect() %>%
-    mutate(game_date = as_date(game_date, origin ="1970-01-01")) %>%
-    select(game_id, game_date, team_loc, team_name, opp_name, team_winner) %>%
-    mutate(game_id = as.numeric(game_id))
-
 pbp <- readRDS("../MambaMetrics/pbp_files/pbp_2019_2023.rds")
 # wp <- readRDS("../MambaMetrics/pbp_files/wp_2019_2023.rds")
 
