@@ -6,266 +6,165 @@ library(nbastatR)
 
 options(scipen = 999999)
 
-plays_db <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db"), "Plays") %>%
-    collect() %>%
-    mutate(date = as_date(date, origin ="1970-01-01"))
-
-yd <- max(plays_db$date)
-# yd <- as_date(Sys.Date()-1)
-# yd <- as_date("2022-12-17")
-
-nba_plays <- plays_db %>% filter(date == yd)
-
-dataGameLogsTeam <- game_logs(seasons = 2023, result_types = "team", season_types = "Regular Season")
-
-results_scores <- dataGameLogsTeam %>%
-    arrange(dateGame,idGame) %>%
-    mutate(dateGame = as_date(dateGame)) %>%
-    left_join(dataGameLogsTeam, 
-              by = c("idGame" = "idGame", "slugTeam" = "slugOpponent")) %>%
-    select(6,5,13,54,8,90,45) %>%
-    filter(dateGame.x == yd)
-
-colnames(results_scores) <- c("game_id", "date", "loc", "opp_team", "team", 
-                              "opp_score", "team_score") 
+#### need function to get current season game info and model outputs
 
 
-yd_results <- nba_plays %>% 
-    left_join(results_scores, by = c("game_id" = "game_id", "date" = "date",
-                                     "loc" = "loc", "opp_team" = "opp_team",
-                                     "team" = "team")
-    ) %>% select(1:5, 76, 77, 6:75)
+#### Results Book ####
+model_outputs <- read_rds("./backest_output/model_outputs_w15.rds")
 
-yd_results
+## ensemble and result columns
+results_book <- model_outputs %>%
+    mutate(
+        ens_win_away = rowMeans(select(.,log_win_away,reg_win_away,
+                                       svm_win_away,nn_win_away,
+                                       xgb_win_away), na.rm = TRUE),
+        ens_win_home = 1 - ens_win_away,
+        ens_team_score = rowMeans(select(.,lin_team_score,reg_team_score,
+                                         svm_team_score,nn_team_score,
+                                         xgb_team_score), na.rm = TRUE),
+        ens_opp_score = rowMeans(select(.,lin_opp_score,reg_opp_score,
+                                        svm_opp_score,nn_opp_score,
+                                        xgb_opp_score), na.rm = TRUE),
+        away_ml_result = case_when(
+            away_moneyline > 0 & team_winner == "win" ~ away_moneyline/100,
+            away_moneyline > 0 & team_winner == "loss" ~ -1,
+            away_moneyline < 0 & team_winner == "win" ~ 1,
+            away_moneyline < 0 & team_winner == "loss" ~ away_moneyline/100),
+        home_ml_result = case_when(
+            home_moneyline > 0 & team_winner == "loss" ~ home_moneyline/100,
+            home_moneyline > 0 & team_winner == "win" ~ -1,
+            home_moneyline < 0 & team_winner == "loss" ~ 1,
+            home_moneyline < 0 & team_winner == "win" ~ home_moneyline/100),
+        away_ats_result = if_else((plus_minus + away_spread) == 0, 0,
+                                  if_else((plus_minus + away_spread) > 0,
+                                          1, -1.1)),
+        home_ats_result = if_else((plus_minus + home_spread) == 0, 0,
+                                  if_else((-plus_minus + home_spread) > 0,
+                                          1, -1.1)),
+        over_game_result = if_else((team_score + opp_score) == 0, 0,
+                                   if_else((team_score + opp_score) > over_under,
+                                           1, -1.1)),
+        under_game_result = if_else((team_score + opp_score) == 0, 0,
+                                    if_else((team_score + opp_score) < over_under,
+                                            1, -1.1))
+    )
 
-results_book <- yd_results %>%
-    mutate(margin = team_score - opp_score) %>%
-    mutate(result = if_else(team_score > opp_score, "W", "L" )) %>%
-    mutate(game_total = team_score + opp_score) %>%
-    mutate(ats_margin = margin + spread) %>%
-    mutate(ats_result = if_else((margin + spread) == 0, 0, if_else(ats_margin > 0, 1, -1.1))) %>%
-    mutate(ml_result = case_when(ml > 0 & (team_score - opp_score) > 0 ~ ml/100, 
-                                 ml > 0 & (team_score - opp_score) < 0 ~ -1,
-                                 (team_score - opp_score) > 0 ~ 1,
-                                 (team_score - opp_score) < 0 ~ ml/100)) %>%
-    mutate(over_result = if_else((game_total - total) == 0, 0, if_else(game_total > total, 1, -1.1))) %>%
-    mutate(under_result = if_else((game_total - total) == 0, 0, if_else(game_total < total, 1, -1.1))) %>%
-    select(1:10, 78:85, 11:77)
-
-
-results_book$kendall_spread_result <- with(results_book, ifelse(kendall_spread_edge>0,ats_result,0))
-results_book$kendall_ml_result <- with(results_book, ifelse(kendall_ml_edge>0,ml_result,0))
-results_book$kendall_over_result <- with(results_book, ifelse(kendall_over_edge>0,over_result,0))
-results_book$kendall_under_result <- with(results_book, ifelse(kendall_under_edge>0,under_result,0))
-
-results_book$tyra_spread_result <- with(results_book, ifelse(tyra_spread_edge>0,ats_result,0))
-results_book$tyra_ml_result <- with(results_book, ifelse(tyra_ml_edge>0,ml_result,0))
-results_book$tyra_over_result <- with(results_book, ifelse(tyra_over_edge>0,over_result,0))
-results_book$tyra_under_result <- with(results_book, ifelse(tyra_under_edge>0,under_result,0))
-
-results_book$gisele_spread_result <- with(results_book, ifelse(gisele_spread_edge>0,ats_result,0))
-results_book$gisele_ml_result <- with(results_book, ifelse(gisele_ml_edge>0,ml_result,0))
-results_book$gisele_over_result <- with(results_book, ifelse(gisele_over_edge>0,over_result,0))
-results_book$gisele_under_result <- with(results_book, ifelse(gisele_under_edge>0,under_result,0))
-
-results_book$chrissy_spread_result <- with(results_book, ifelse(chrissy_spread_edge>0,ats_result,0))
-results_book$chrissy_ml_result <- with(results_book, ifelse(chrissy_ml_edge>0,ml_result,0))
-results_book$chrissy_over_result <- with(results_book, ifelse(chrissy_over_edge>0,over_result,0))
-results_book$chrissy_under_result <- with(results_book, ifelse(chrissy_under_edge>0,under_result,0))
-
-results_book$kate_spread_result <- with(results_book, ifelse(kate_spread_edge>0,ats_result,0))
-results_book$kate_ml_result <- with(results_book, ifelse(kate_ml_edge>0,ml_result,0))
-results_book$kate_over_result <- with(results_book, ifelse(kate_over_edge>0,over_result,0))
-results_book$kate_under_result <- with(results_book, ifelse(kate_under_edge>0,under_result,0))
-
-results_book$cindy_spread_result <- with(results_book, ifelse(cindy_spread_edge>0,ats_result,0))
-results_book$cindy_ml_result <- with(results_book, ifelse(cindy_ml_edge>0,ml_result,0))
-results_book$cindy_over_result <- with(results_book, ifelse(cindy_over_edge>0,over_result,0))
-results_book$cindy_under_result <- with(results_book, ifelse(cindy_under_edge>0,under_result,0))
-
-results_book$naomi_spread_result <- with(results_book, ifelse(naomi_spread_edge>0,ats_result,0))
-results_book$naomi_ml_result <- with(results_book, ifelse(naomi_ml_edge>0,ml_result,0))
-results_book$naomi_over_result <- with(results_book, ifelse(naomi_over_edge>0,over_result,0))
-results_book$naomi_under_result <- with(results_book, ifelse(naomi_under_edge>0,under_result,0))
-
-results_book$heidi_spread_result <- with(results_book, ifelse(heidi_spread_edge>0,ats_result,0))
-results_book$heidi_ml_result <- with(results_book, ifelse(heidi_ml_edge>0,ml_result,0))
-results_book$heidi_over_result <- with(results_book, ifelse(heidi_over_edge>0,over_result,0))
-results_book$heidi_under_result <- with(results_book, ifelse(heidi_under_edge>0,under_result,0))
-
-results_book$adriana_spread_result <- with(results_book, ifelse(adriana_spread_edge>0,ats_result,0))
-results_book$adriana_ml_result <- with(results_book, ifelse(adriana_ml_edge>0,ml_result,0))
-results_book$adriana_over_result <- with(results_book, ifelse(adriana_over_edge>0,over_result,0))
-results_book$adriana_under_result <- with(results_book, ifelse(adriana_under_edge>0,under_result,0))
-
-results_book <- results_book %>% select(1:81, 86:121, 82:85)
-results_book
-
-### Results Book to DB ----
-NBAdb <- DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db")
-
-DBI::dbWriteTable(NBAdb, "ResultsBook", results_book, append = T)
-
-DBI::dbDisconnect(NBAdb)
+win_columns <- names(results_book %>% select(ends_with("win_away")))
+team_columns <- names(results_book %>% select(ends_with("_team_score")))
+opp_columns <- names(results_book %>% select(ends_with("_opp_score")))
 
 
-### Edge Analysis ----
-results_book <- dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), "../nba_sql_db/nba_db"), "ResultsBook") %>%
-    collect() %>%
-    mutate(date = as_date(date, origin ="1970-01-01"))
-
-# results_book <- results_book %>%
-#     filter(date >= max(date) - 20)
-
-# add wager column for calculating ml roi
-results_book <- results_book %>%
-    mutate(ml_wager = ifelse(ml < 100, ml/-100, 1))
-
-
-### Spread Key ----
-names_spread <- names(results_book %>% select(ends_with("spread_edge")))
-
-results_spread_list <- list()
-for (i in seq_along(names_spread)) {
-    nms <- names_spread[[i]]
-    results_spread_list[[paste0(nms, collapse = "_")]] <- results_book %>% 
-        filter(if_all(all_of(nms), ~ .> 0)) %>%
-        select("date","loc","opp_team","team",names_spread[[i]],"ats_result") %>%
-        arrange(desc(select(.,ends_with("edge")))) %>%
-        mutate(cume = round(cumsum(ats_result),1)) %>%
-        mutate(game_num = row_number()) %>%
-        mutate(roi = round((cume /(game_num*1.1))*100,2)) %>%
-        select(1:7,9,8)
+## calculate edges
+for (i in seq_along(win_columns)) {
+    model_edges <- results_book %>%
+        mutate(
+            win_edge = abs(.data[[win_columns[[i]]]] - away_implied_prob),
+            spread_edge = abs((.data[[team_columns[[i]]]] - .data[[opp_columns[[i]]]]) + away_spread),
+            over_edge = (.data[[team_columns[[i]]]] + .data[[opp_columns[[i]]]]) - over_under,
+            under_edge = over_under - (.data[[team_columns[[i]]]] + .data[[opp_columns[[i]]]]),
+            win_result = if_else(.data[[win_columns[[i]]]] - away_implied_prob > 0,
+                                 away_ml_result, home_ml_result),
+            spread_result = if_else((.data[[team_columns[[i]]]] - .data[[opp_columns[[i]]]]) + away_spread > 0,
+                                    away_ats_result, home_ats_result),
+            over_under_result = if_else(over_edge > 0,
+                                        over_game_result, under_game_result),
+            ml_wager = if_else(.data[[win_columns[[i]]]] - away_implied_prob > 0,
+                               ifelse(away_moneyline < 100,
+                                      away_moneyline/-100, 1),
+                               ifelse(home_moneyline < 100,
+                                      home_moneyline/-100, 1))
+        ) %>%
+        select(game_id,win_edge:ml_wager)
     
-}
-
-peak_spread_list <- list()
-for (j in seq_along(results_spread_list)) {
-    x <- results_spread_list[[j]][order(-results_spread_list[[j]][,7]), ]
-    peak_spread_list[[j]] <- as.data.table(head(x,1))
-}
-
-peak_spread <- rbindlist(peak_spread_list, fill = TRUE, idcol = F) %>%
-    select(1,9,7:8,5,10:17)
-
-peak_spread_filtered <- peak_spread %>%
-    pivot_longer(cols = !date:roi, names_to = "model", values_to = "key") %>%
-    arrange(desc(cume)) %>%
-    mutate(model = gsub("([a-z]*_[a-z]*)(.*)", "\\1", model)) %>%
-    drop_na()
-
-
-### ML Key ----
-names_ml <- names(results_book %>% select(ends_with("ml_edge")))
-
-results_ml_list <- list()
-for (i in seq_along(names_ml)) {
-    nms <- names_ml[[i]]
-    results_ml_list[[paste0(nms, collapse = "_")]] <- results_book %>% 
-        filter(if_all(all_of(nms), ~ .> 0)) %>%
-        select("date","loc","opp_team","team",names_ml[[i]],"ml_result","ml_wager") %>%
-        arrange(desc(select(.,ends_with("edge")))) %>%
-        mutate(cume = round(cumsum(ml_result),1)) %>%
-        mutate(game_num = row_number()) %>%
-        mutate(roi = round((cume / cumsum(ml_wager))*100,2)) %>%
-        select(1:6,8,10,9)
+    colnames(model_edges) <- c(
+        "game_id",
+        paste0(sub("_win_away$", "", win_columns[i]),"_win_edge"),
+        paste0(sub("_team_score$", "", team_columns[i]),"_spread_edge"),
+        paste0(sub("_team_score$", "", team_columns[i]),"_over_edge"),
+        paste0(sub("_team_score$", "", team_columns[i]),"_under_edge"),
+        paste0(sub("_win_away$", "", win_columns[i]),"_win_result"),
+        paste0(sub("_team_score$", "", team_columns[i]),"_spread_result"),
+        paste0(sub("_team_score$", "", team_columns[i]),"_over_under_result"),
+        paste0(sub("_win_away$", "", win_columns[i]),"_ml_wager")
+    )
     
-}
-
-peak_ml_list <- list()
-for (j in seq_along(results_ml_list)) {
-    x <- results_ml_list[[j]][order(-results_ml_list[[j]][,7]), ]
-    peak_ml_list[[j]] <- as.data.table(head(x,1))
-}
-
-peak_ml <- rbindlist(peak_ml_list, fill = TRUE, idcol = F) %>%
-    select(1,9,7:8,5,10:17)
-
-peak_ml_filtered <- peak_ml %>%
-    pivot_longer(cols = !date:roi, names_to = "model", values_to = "key") %>%
-    arrange(desc(cume)) %>%
-    mutate(model = gsub("([a-z]*_[a-z]*)(.*)", "\\1", model)) %>%
-    drop_na()
-
-
-### Over Key ----
-names_over <- names(results_book %>% select(ends_with("over_edge")))
-
-results_over_list <- list()
-for (i in seq_along(names_over)) {
-    nms <- names_over[[i]]
-    results_over_list[[paste0(nms, collapse = "_")]] <- results_book %>% 
-        filter(if_all(all_of(nms), ~ .> 0)) %>%
-        select("date","loc","opp_team","team",names_over[[i]],"over_result") %>%
-        arrange(desc(select(.,ends_with("edge")))) %>%
-        mutate(cume = round(cumsum(over_result),1)) %>%
-        mutate(game_num = row_number()) %>%
-        mutate(roi = round((cume /(game_num*1.1))*100,2)) %>%
-        select(1:7,9,8)
+    edge_columns <- names(model_edges %>% select(ends_with("edge")))
+    result_columns <- names(model_edges %>% select(ends_with("result")))
+    result_columns <- c(result_columns, tail(result_columns, 1))
+    wager <- names(model_edges %>% select(ends_with("wager")))
     
-}
-
-peak_over_list <- list()
-for (j in seq_along(results_over_list)) {
-    x <- results_over_list[[j]][order(-results_over_list[[j]][,7]), ]
-    peak_over_list[[j]] <- as.data.table(head(x,1))
-}
-
-peak_over <- rbindlist(peak_over_list, fill = TRUE, idcol = F) %>%
-    select(1,9,7:8,5,10:17)
-
-peak_over_filtered <- peak_over %>%
-    pivot_longer(cols = !date:roi, names_to = "model", values_to = "key") %>%
-    arrange(desc(cume)) %>%
-    mutate(model = gsub("([a-z]*_[a-z]*)(.*)", "\\1", model)) %>%
-    drop_na()
-
-
-### Under Key ----
-names_under <- names(results_book %>% select(ends_with("under_edge")))
-
-results_under_list <- list()
-for (i in seq_along(names_under)) {
-    nms <- names_under[[i]]
-    results_under_list[[paste0(nms, collapse = "_")]] <- results_book %>% 
-        filter(if_all(all_of(nms), ~ .> 0)) %>%
-        select("date","loc","opp_team","team",names_under[[i]],"under_result") %>%
-        arrange(desc(select(.,ends_with("edge")))) %>%
-        mutate(cume = round(cumsum(under_result),1)) %>%
-        mutate(game_num = row_number()) %>%
-        mutate(roi = round((cume /(game_num*1.1))*100,2)) %>%
-        select(1:7,9,8)
+    # Loop through columns
+    for (h in seq_along(edge_columns)) {
+        model_stats <- model_edges %>%
+            arrange(desc(select(., matches(edge_columns[h])))) %>%
+            mutate(
+                cume = round(cumsum(.data[[result_columns[[h]]]]), 2),
+                games = row_number(),
+                roi = case_when(
+                    str_ends(edge_columns[[h]], "_win_edge") ~
+                        round((cume / cumsum(.data[[wager]])) * 100, 2),
+                    !str_ends(edge_columns[[h]], "_win_edge") ~
+                        round((cume / (games * 1.1)) * 100, 2)
+                ),
+                win_pct = (cumsum(if_else(.data[[result_columns[[h]]]] > 0, 1, 0)))/
+                    (cumsum(if_else(.data[[result_columns[[h]]]] != 0, 1, 0))),
+                across((cume:win_pct), as.numeric)
+            ) %>%
+            select(cume, games, roi, win_pct)
+        
+        colnames(model_stats) <- c(
+            paste0(sub("_edge$", "", edge_columns[h]),"_cume"),
+            paste0(sub("_edge$", "", edge_columns[h]),"_games"),
+            paste0(sub("_edge$", "", edge_columns[h]),"_roi"),
+            paste0(sub("_edge$", "", edge_columns[h]),"_win_pct")
+        )
+        
+        model_edges <- model_edges %>%
+            arrange(desc(select(., matches(edge_columns[h])))) %>%
+            bind_cols(model_stats)
+    }
     
+    results_book <- results_book %>%
+        left_join(model_edges)
 }
 
-peak_under_list <- list()
-for (j in seq_along(results_under_list)) {
-    x <- results_under_list[[j]][order(-results_under_list[[j]][,7]), ]
-    peak_under_list[[j]] <- as.data.table(head(x,1))
+
+#### function to summarize results book ----
+summarize_results_book <- function(results_book) {
+    # Create an empty data frame to store results
+    result_df <- data.frame()
+    
+    # Specify column names
+    edge_columns <- names(results_book %>% select(ends_with("_edge")))
+    cume_columns <- names(results_book %>% select(ends_with("_cume")))
+    games_columns <- names(results_book %>% select(ends_with("_games")))
+    roi_columns <- names(results_book %>% select(ends_with("_roi")))
+    
+    # Loop through columns
+    for (j in seq_along(edge_columns)) {
+        max_value <- results_book %>%
+            arrange(desc(!!sym(cume_columns[j]))) %>%
+            slice(1) %>%
+            mutate(model = edge_columns[j]) %>%
+            select(model, edge = edge_columns[j], value = cume_columns[j],
+                   games = games_columns[j], roi = roi_columns[j]) %>%
+            mutate(across(c(edge, value, games, roi), as.numeric),
+                   model = sub("_edge$", "", model))
+        
+        # Store values in the result data frame
+        result_df <- bind_rows(result_df, max_value)
+    }
+    
+    return(result_df)
 }
 
-peak_under <- rbindlist(peak_under_list, fill = TRUE, idcol = F) %>%
-    select(1,9,7:8,5,10:17)
-
-peak_under_filtered <- peak_under %>%
-    pivot_longer(cols = !date:roi, names_to = "model", values_to = "key") %>%
-    arrange(desc(cume)) %>%
-    mutate(model = gsub("([a-z]*_[a-z]*)(.*)", "\\1", model)) %>%
-    drop_na()
+# usage of the function
+results_summary <- summarize_results_book(results_book)
 
 
-### Clean Environment ----
-rm(list=ls()[! ls() %in% c("peak_spread_filtered","peak_ml_filtered",
-                           "peak_over_filtered","peak_under_filtered",
-                           "results_spread_list","results_ml_list",
-                           "results_over_list","results_under_list")])
 
-print("Results Edges Complete")
 
-# notes ----
-# looking great through 11/13
-# nn is unreal through 11/26
-# heidi 12/16-12/31
-# gisele 12/16-12/31
-# heidi 12/18-01/02 - spread and ML
+
+
+
 
