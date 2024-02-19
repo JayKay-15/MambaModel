@@ -894,9 +894,6 @@ for (i in seq_along(win_columns)) {
 }
 
 
-
-
-
 #### function to summarize results book ----
 summarize_results_book <- function(results_book) {
     # Create an empty data frame to store results
@@ -909,13 +906,13 @@ summarize_results_book <- function(results_book) {
     roi_columns <- names(results_book %>% select(ends_with("_roi")))
     
     # Loop through columns
-    for (i in seq_along(edge_columns)) {
+    for (j in seq_along(edge_columns)) {
         max_value <- results_book %>%
-            arrange(desc(select(., matches(cume_columns[i])))) %>%
+            arrange(desc(!!sym(cume_columns[j]))) %>%
             slice(1) %>%
-            mutate(model = edge_columns[i]) %>%
-            select(model, edge = edge_columns[i], value = cume_columns[i],
-                   games = games_columns[i], roi = roi_columns[i]) %>%
+            mutate(model = edge_columns[j]) %>%
+            select(model, edge = edge_columns[j], value = cume_columns[j],
+                   games = games_columns[j], roi = roi_columns[j]) %>%
             mutate(across(c(edge, value, games, roi), as.numeric),
                    model = sub("_edge$", "", model))
         
@@ -923,13 +920,11 @@ summarize_results_book <- function(results_book) {
         result_df <- bind_rows(result_df, max_value)
     }
     
-    
     return(result_df)
 }
 
 # usage of the function
 results_summary <- summarize_results_book(results_book)
-
 
 
 #### function to produce model viz ----
@@ -982,19 +977,14 @@ models_key <- c(0.05781939, 4.30365229, 2.5421957, 1.9372166)
 model_viz(models_edge, models_result, models_key)
 
 
-
-
-
-
-
+# best keys
 moneyline_key <- 0.05781939 # regularization (ridge)
 spread_key <- 4.30365229 # ensemble (lin, reg, svm, nn, xgb)
 over_key <- 2.5421957 # ensemble (lin, reg, svm, nn, xgb)
 under_key <- 1.9372166 # ensemble (lin, reg, svm, nn, xgb)
 
 
-
-
+# single metrics chart
 model_outputs %>%
     filter(reg_win_edge >= results_book) %>%
     group_by(season_year, game_date) %>%
