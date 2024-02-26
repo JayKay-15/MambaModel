@@ -15,7 +15,7 @@ model_outputs <- read_rds("./backest_output/model_outputs_w15.rds")
 ## ensemble and result columns
 results_book <- model_outputs %>%
     mutate(
-        ens_win_away = rowMeans(select(.,log_win_away,reg_win_away,
+        ens_win_team = rowMeans(select(.,log_win_away,reg_win_away,
                                        svm_win_away,nn_win_away,
                                        xgb_win_away), na.rm = TRUE),
         ens_win_home = 1 - ens_win_away,
