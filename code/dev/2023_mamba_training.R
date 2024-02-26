@@ -29,14 +29,15 @@ options(scipen = 999999)
 # https://www.kaggle.com/code/pelkoja/visual-xgboost-tuning-with-caret/report
 
 # pull all historical data
-nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_stats") %>%
+nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_wide_odds") %>%
     collect() %>%
     rename(team_winner = wl,
-           team_score = pts,
-           opp_score = opp_pts) %>%
+           team_score = away_pts,
+           opp_score = home_pts) %>%
     mutate(game_date = as_date(game_date, origin ="1970-01-01"),
            team_winner = if_else(team_winner == "W", "win", "loss"),
-           team_winner = factor(team_winner, levels = c("win", "loss")))
+           team_winner = factor(team_winner, levels = c("win", "loss")),
+           location = factor(location, levels = c("away", "home")))
 
 
 # nba_final <- read_rds("../NBAdb/mamba_stats_w5.rds")
@@ -70,8 +71,8 @@ set.seed(214)
 
 # feature correlations
 cor_df <- nba_final %>%
-    select(is_b2b_first:opp_is_b2b_second, over_under, away_implied_prob,
-           away_fgm:home_fic) %>%
+    select(away_is_b2b_first:home_is_b2b_second, over_under, away_implied_prob,
+           away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 # check for extreme correlation
@@ -94,8 +95,8 @@ summary(cor_mx_new[upper.tri(cor_mx_new)])
 
 # correlations - win
 model_win_all <- nba_final %>%
-    select(team_winner, is_b2b_first:opp_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_fic) %>%
+    select(team_winner, away_is_b2b_first:home_is_b2b_second, over_under,
+           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating")) %>%
     mutate(team_winner = if_else(team_winner == "win", 1, 0))
 
@@ -117,8 +118,8 @@ cor_mx
 
 # correlations - team score
 model_ts_all <- nba_final %>%
-    select(team_score, is_b2b_first:opp_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_fic) %>%
+    select(team_score, away_is_b2b_first:home_is_b2b_second, over_under,
+           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 # near zero variables
@@ -139,8 +140,8 @@ cor_mx
 
 # correlations - opp score
 model_os_all <- nba_final %>%
-    select(opp_score, is_b2b_first:opp_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_fic) %>%
+    select(opp_score, away_is_b2b_first:home_is_b2b_second, over_under,
+           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 # near zero variables
@@ -166,19 +167,19 @@ rm(list=ls()[! ls() %in% c("nba_final", "cor_cols")])
 # all features
 train <- nba_final %>%
     filter(season_year <= 2021) %>%
-    select(team_winner, is_b2b_first:opp_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_fic) %>%
+    select(team_winner, away_is_b2b_first:home_is_b2b_second, over_under,
+           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 test <- nba_final %>%
     filter(season_year > 2021) %>%
-    select(team_winner, is_b2b_first:opp_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_fic) %>%
+    select(team_winner, away_is_b2b_first:home_is_b2b_second, over_under,
+           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
-# model_outputs <- nba_final %>%
-#     filter(season_year > 2021) %>%
-#     select(season_year:home_implied_prob)
+model_outputs <- nba_final %>%
+    filter(season_year > 2021) %>%
+    select(season_year:home_implied_prob)
 
 # highly correlated features removed
 train <- train %>% select(-all_of(cor_cols))
