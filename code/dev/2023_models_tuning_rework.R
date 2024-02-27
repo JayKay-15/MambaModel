@@ -31,6 +31,7 @@ options(scipen = 999999)
 # pull all historical data
 nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_long_odds") %>%
     collect() %>%
+    filter(season_year >= 2020) %>%
     rename(team_winner = wl,
            team_score = pts,
            opp_score = opp_pts) %>%
@@ -39,32 +40,19 @@ nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_long_odds")
            team_winner = factor(team_winner, levels = c("win", "loss")),
            location = factor(location, levels = c("away", "home")))
 
-
-# nba_final <- read_rds("../NBAdb/mamba_stats_w5.rds")
-# nba_final <- read_rds("../NBAdb/mamba_stats_w10.rds")
-# nba_final <- read_rds("../NBAdb/mamba_stats_w15.rds")
-# nba_final <- read_rds("../NBAdb/mamba_stats_w20.rds")
-
-# saveRDS(model_outputs, "./backest_output/model_outputs_w5.rds")
-# saveRDS(model_outputs, "./backest_output/model_outputs_w10.rds")
-# saveRDS(model_outputs, "./backest_output/model_outputs_w15.rds")
-# saveRDS(model_outputs, "./backest_output/model_outputs_w20.rds")
-
+nba_final <- read_rds("../MambaModel/pace_adj_10.rds")
+nba_final <- read_rds("../NBAdb/models/nba_final_full_10.rds")
 # model_outputs <- read_rds("./backest_output/model_outputs_w15.rds")
 
 nba_final <- nba_final %>%
-    filter(season_year >= 2019) %>%
+    filter(season_year >= 2020) %>%
+    rename(team_winner = wl,
+           team_score = pts,
+           opp_score = opp_pts) %>%
     mutate(game_date = as_date(game_date, origin ="1970-01-01"),
-           team_winner = factor(team_winner, levels = c("win", "loss")))
-
-# starter_fic <- read_csv("/Users/jesse/Desktop/starter_fic.csv")
-# nba_final_fic <- nba_final %>%
-#     left_join(starter_fic)
-# 
-# saveRDS(nba_final_fic, "/Users/jesse/Desktop/nba_final_fic.rds")
-
-nba_final_fic <- read_rds("/Users/jesse/Desktop/nba_final_fic.rds")
-nba_final <- nba_final_fic
+           team_winner = if_else(team_winner == "W", "win", "loss"),
+           team_winner = factor(team_winner, levels = c("win", "loss")),
+           location = factor(location, levels = c("away", "home")))
 
 # correlations ----
 set.seed(214)
@@ -167,13 +155,13 @@ rm(list=ls()[! ls() %in% c("nba_final", "cor_cols")])
 # team winner models ----
 # all features
 train <- nba_final %>%
-    filter(season_year <= 2021) %>%
+    filter(season_year <= 2022) %>%
     select(team_winner, location, is_b2b_first:opp_is_b2b_second, over_under,
            team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 test <- nba_final %>%
-    filter(season_year > 2021) %>%
+    filter(season_year > 2022) %>%
     select(team_winner, location, is_b2b_first:opp_is_b2b_second, over_under,
            team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
@@ -598,13 +586,13 @@ xgb_win_imp
 # team score models ----
 # all features
 train <- nba_final %>%
-    filter(season_year <= 2021) %>%
+    filter(season_year <= 2022) %>%
     select(team_score, location, is_b2b_first:opp_is_b2b_second, over_under,
            team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 test <- nba_final %>%
-    filter(season_year > 2021) %>%
+    filter(season_year > 2022) %>%
     select(team_score, location, is_b2b_first:opp_is_b2b_second, over_under,
            team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
@@ -796,6 +784,7 @@ team_pred <- predict(nn_team, test)
 
 # model evaluation
 postResample(pred = team_pred, obs = test$team_score) # caret eval
+nn_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 # variable importance
 importance <- varImp(nn_team, scale = F)
@@ -819,37 +808,47 @@ grid <- expand.grid(
     min_child_weight = xgb_tune$bestTune$min_child_weight,
     subsample = xgb_tune$bestTune$subsample
 )
+
 xgb_team <- train(team_score ~., data = train,
                   method = "xgbTree",
                   trControl = ctrl,
                   tuneGrid = grid)
+xgb_tune <- xgb_team
 
-# helper function for the plots
-tuneplot <- function(x, probs = .90) {
-    ggplot(x) +
-        coord_cartesian(ylim = c(quantile(x$results$RMSE, probs = probs), min(x$results$RMSE))) +
-        theme_bw()
-}
-
-tuneplot(xgb_tune)
+xgb_team
+xgb_team$resample
+xgb_team$results
+summary(xgb_team) # model components
+plot(xgb_team) # viz
 
 # predictions
 team_pred <- predict(xgb_team, test)
-model_outputs <- model_outputs %>%
-    mutate(xgb_team_score = as.numeric(team_pred))
+
+# model evaluation
+postResample(pred = team_pred, obs = test$team_score) # caret eval
+xgb_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
+
+# variable importance
+importance <- varImp(xgb_team, scale = F)
+plot(importance)
+
+xgb_team_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
+    arrange(desc(Overall)) %>%
+    head(20)
+xgb_team_imp
 
 
 # opp score models ----
 # all features
 train <- nba_final %>%
-    filter(season_year <= 2021) %>%
-    select(opp_score, is_b2b_first:opp_is_b2b_second, over_under,
+    filter(season_year <= 2022) %>%
+    select(opp_score, location, is_b2b_first:opp_is_b2b_second, over_under,
            team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 test <- nba_final %>%
-    filter(season_year > 2021) %>%
-    select(opp_score, is_b2b_first:opp_is_b2b_second, over_under,
+    filter(season_year > 2022) %>%
+    select(opp_score, location, is_b2b_first:opp_is_b2b_second, over_under,
            team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
@@ -1006,11 +1005,11 @@ summary(svm_opp) # model components
 plot(svm_opp) # viz
 
 # predictions
-team_pred <- predict(svm_opp, test)
+opp_pred <- predict(svm_opp, test)
 
 # model evaluation
-postResample(pred = team_pred, obs = test$opp_score) # caret eval
-svm_opp_metrics <- postResample(pred = team_pred, obs = test$opp_score)[1]
+postResample(pred = opp_pred, obs = test$opp_score) # caret eval
+svm_opp_metrics <- postResample(pred = opp_pred, obs = test$opp_score)[1]
 
 
 # opp score neural net model ----
@@ -1033,10 +1032,11 @@ summary(nn_opp) # model components
 plot(nn_opp) # viz
 
 # predictions
-team_pred <- predict(nn_opp, test)
+opp_pred <- predict(nn_opp, test)
 
 # model evaluation
-postResample(pred = team_pred, obs = test$opp_score) # caret eval
+postResample(pred = opp_pred, obs = test$opp_score) # caret eval
+nn_opp_metrics <- postResample(pred = opp_pred, obs = test$opp_score)[1]
 
 # variable importance
 importance <- varImp(nn_opp, scale = F)
@@ -1060,24 +1060,39 @@ grid <- expand.grid(
     min_child_weight = xgb_tune$bestTune$min_child_weight,
     subsample = xgb_tune$bestTune$subsample
 )
+
 xgb_opp <- train(opp_score ~., data = train,
                  method = "xgbTree",
                  trControl = ctrl,
                  tuneGrid = grid)
+xgb_tune <- xgb_opp
 
-# helper function for the plots
-tuneplot <- function(x, probs = .90) {
-    ggplot(x) +
-        coord_cartesian(ylim = c(quantile(x$results$RMSE, probs = probs), min(x$results$RMSE))) +
-        theme_bw()
-}
-
-tuneplot(xgb_tune)
+xgb_opp
+xgb_opp$resample
+xgb_opp$results
+summary(xgb_opp) # model components
+plot(xgb_opp) # viz
 
 # predictions
 opp_pred <- predict(xgb_opp, test)
-model_outputs <- model_outputs %>%
-    mutate(xgb_opp_score = as.numeric(opp_pred))
+
+# model evaluation
+postResample(pred = opp_pred, obs = test$opp_score) # caret eval
+xgb_opp_metrics <- postResample(pred = opp_pred, obs = test$opp_score)[1]
+
+# variable importance
+importance <- varImp(xgb_opp, scale = F)
+plot(importance)
+
+xgb_opp_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
+    arrange(desc(Overall)) %>%
+    head(20)
+xgb_opp_imp
+
+
+
+
+
 
 
 
