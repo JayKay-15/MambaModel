@@ -6,6 +6,7 @@ library(DBI) # db
 library(caret) # model training
 library(tidymodels) # model eval
 library(ggfortify) # autoplot
+library(doParallel) # parallel
 
 # library(MLeval) # model eval
 # library(pROC) # model eval
