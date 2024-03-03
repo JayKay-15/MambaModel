@@ -29,6 +29,7 @@ cl <- makePSOCKcluster(4)
 registerDoParallel(cl)
 
 stopCluster(cl)
+registerDoSEQ() # ends parallel processing
 
 options(scipen = 999999)
 # Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2)
@@ -374,6 +375,8 @@ knn_win_metrics <- postResample(pred = pred, obs = obs)[1]
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = F, 
                      classProbs = T, summaryFunction = twoClassSummary)
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = F, 
+                     classProbs = T)
 grid <- expand.grid(
     .mtry = 1:7,
     .splitrule = "gini",
@@ -381,7 +384,7 @@ grid <- expand.grid(
 )
 rf_win <- train(team_winner ~., data = train,
                 method = "ranger",
-                metric = "ROC",
+                # metric = "ROC",
                 preProc = c("center", "scale"),
                 trControl = ctrl,
                 tuneGrid = grid)
@@ -391,7 +394,7 @@ grid <- expand.grid(
 )
 rf_win <- train(team_winner ~., data = train,
                 method = "rf",
-                metric = "ROC",
+                # metric = "ROC",
                 preProc = c("center", "scale"),
                 trControl = ctrl,
                 tuneGrid = grid)
@@ -522,35 +525,41 @@ grid <- expand.grid(
     decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5),
     size = c(1, 3, 5, 7, 9)
 )
+set.seed(214)
 nn_win <- train(team_winner ~., data = train,
                 method = "nnet",
                 # metric = "ROC",
                 preProc = c("center", "scale"),
                 trControl = ctrl,
-                tuneGrid = grid)
+                tuneGrid = grid,
+                maxit = 1000)
 
 grid <- expand.grid(
     decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5),
     size = c(1, 3, 5, 7, 9),
     bag = FALSE
 )
+set.seed(214)
 nn_win <- train(team_winner ~., data = train,
                 method = "avNNet",
                 # metric = "ROC",
                 preProc = c("center", "scale"),
                 trControl = ctrl,
-                tuneGrid = grid)
+                tuneGrid = grid,
+                maxit = 1000)
 
 grid <- expand.grid(
     decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5),
     size = c(1, 3, 5, 7, 9)
 )
+set.seed(214)
 nn_win <- train(team_winner ~., data = train,
                 method = "pcaNNet",
                 # metric = "ROC",
                 preProc = c("center", "scale"),
                 trControl = ctrl,
-                tuneGrid = grid)
+                tuneGrid = grid,
+                maxit = 1000)
 
 # grid <- expand.grid(
 #     layer1 = seq(0, 50, 5),
@@ -652,10 +661,6 @@ grid <- expand.grid(
     subsample = xgb_tune$bestTune$subsample
 )
 
-
-
-
-
 grid <- expand.grid(
     nrounds = 1000,
     eta = c(0.01, 0.015, 0.025, 0.05, 0.1),
@@ -670,6 +675,25 @@ xgb_win <- train(team_winner ~., data = train,
                  tuneGrid = grid)
 xgb_tune <- xgb_win
 
+
+ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 5,
+                     verboseIter = T, classProbs = T, search = "random")
+
+ctrl <- trainControl(method = "adaptive_cv", number = 5, repeats = 5,
+                     verboseIter = T, classProbs = T, search = "random",
+                     adaptive = list(min = 3,     # minimum number of resamples before elimination is possible
+                                     alpha = 0.05,     # confidence level used to eliminate hyperparameter combos
+                                     method = "gls",  
+                                     complete = TRUE))
+set.seed(214)
+xgb_win <- train(team_winner ~., data = train,
+                 method = "xgbTree",
+                 # metric = "ROC",
+                 preProc = c("center", "scale"),
+                 trControl = ctrl,
+                 tuneLength = 15)
+
+getTrainPerf(xgb_win)
 xgb_win
 xgb_win$resample
 xgb_win$results
@@ -716,6 +740,95 @@ xgb_win_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
 xgb_win_imp
 
 
+# team winner boosted generalized linear model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
+                     classProbs = T)
+grid <- expand.grid(
+    mstop = seq(50, 500, 50),
+    prune = c("no")
+)
+set.seed(214)
+glm_win <- train(team_winner ~., data = train,
+                 method = "glmboost",
+                 # metric = "ROC",
+                 preProc = c("center", "scale"),
+                 trControl = ctrl,
+                 tuneGrid = grid)
+
+glm_win
+glm_win$resample
+glm_win$results
+summary(glm_win) # model components
+confusionMatrix(glm_win) # confusion matrix
+plot(glm_win)
+
+# predictions
+win_pred <- predict(glm_win, test, type = "prob")
+confusionMatrix(test$team_winner,
+                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
+                       levels = c("win","loss")),
+                positive = "win")
+
+
+
+# team winner ensemble model ---- https://www.stepbystepdatascience.com/hyperparameter-tuning-and-model-stacking-with-caret
+# model
+library(caretEnsemble)
+ensem_control <- trainControl(method = "adaptive_cv", number = 5, repeats = 5,
+                              verboseIter = T, classProbs = T,
+                              adaptive = list(min = 5,
+                                              alpha = 0.05,
+                                              method = "gls",
+                                              complete = TRUE),
+                              search = "random",
+                              savePredictions = "final") # this is needed so we can ensemble later
+set.seed(214)
+all_in_one <- caretList(team_winner ~., data = train,
+                        trControl = ensem_control,
+                        preProc = c("center", "scale"),
+                        tuneList=list(glmnet = caretModelSpec(method = "glmnet",
+                                                              tuneLength = 15),
+                                      nn = caretModelSpec(method = "pcaNNet",
+                                                          tuneLength = 15,
+                                                          maxit = 1000),
+                                      svm = caretModelSpec(method = "svmRadial",
+                                                           tuneLength = 15)))
+# Have a look at the models
+rbind(getTrainPerf(all_in_one$"glmnet"),
+      getTrainPerf(all_in_one$"nn"),
+      getTrainPerf(all_in_one$"svm")) %>% 
+    arrange(desc(TrainAccuracy))
+
+# Plot the results
+bwplot(resamples(all_in_one))
+
+# Have a look at the correlation amongst the models
+modelCor(resamples(all_in_one))
+
+# Add on average correlation amongst models
+rbind(as_tibble(modelCor(resamples(all_in_one)), rownames = "models"),
+      summarise_all(as_tibble(modelCor(resamples(all_in_one))), mean) %>% 
+          mutate(models = "average") %>% 
+          select(models, everything()))
+
+# Caret ensemble will ensemble all models in your list
+all_models_ensemble <- caretEnsemble(all_in_one)
+all_models_ensemble # print the performance of the stack
+
+summary(all_models_ensemble) # print a bit more detail
+
+# We can pass a trControl to our caretEnsemble too
+ensembleCtrl <- trainControl(method = "repeatedcv", # what method of resampling we want to use
+                             number = 5, # 10 folds
+                             repeats = 5) # repeated ten times
+
+cv_ensemble <- caretEnsemble(all_in_one, trControl=ensembleCtrl)
+
+summary(cv_ensemble) 
+
+
+
 # team score models ----
 # all features
 train <- nba_final %>%
@@ -753,6 +866,7 @@ test <- test %>%
 # team score linear regression model ----
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = F)
+set.seed(214)
 lin_team <- train(team_score ~., data = train,
                   method = "lm",
                   metric = "MAE",
@@ -792,6 +906,7 @@ grid <- expand.grid(
     alpha = 0, 
     lambda = 10^seq(2, -3, by = -.1)
 )
+set.seed(214)
 reg_team <- train(team_score ~., data = train,
                   method = "glmnet",
                   metric = "MAE",
@@ -831,6 +946,7 @@ ctrl <- trainControl(method = "cv", number = 5, verboseIter = F)
 grid <- expand.grid(
     k = seq(2, 50, 2)
 )
+set.seed(214)
 knn_team <- train(team_score ~., data = train, 
                   method = "knn",
                   metric = "MAE",
@@ -860,6 +976,7 @@ grid <- expand.grid(
     .splitrule = "variance",
     .min.node.size = 1
 )
+set.seed(214)
 rf_team <- train(team_score ~., data = train,
                  method = "ranger",
                  metric = "MAE",
@@ -870,6 +987,7 @@ rf_team <- train(team_score ~., data = train,
 grid <- expand.grid(
     .mtry = seq(2, 24, 2)
 )
+set.seed(214)
 rf_team <- train(team_score ~., data = train,
                  method = "rf",
                  metric = "MAE",
@@ -897,6 +1015,7 @@ grid <- expand.grid(
     sigma = c(0.0005, 0.001, 0.005, 0.01),
     C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
 )
+set.seed(214)
 svm_team <- train(team_score ~., data = train,
                   method = "svmRadial",
                   metric = "MAE",
@@ -907,6 +1026,7 @@ svm_team <- train(team_score ~., data = train,
 grid <- expand.grid(
     C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
 )
+set.seed(214)
 svm_team <- train(team_score ~., data = train,
                   method = "svmLinear",
                   metric = "MAE",
@@ -1042,6 +1162,68 @@ xgb_team_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
 xgb_team_imp
 
 
+# team score glm boost model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    mstop = seq(50, 500, 50),
+    prune = c("yes", "yes")
+)
+set.seed(214)
+glm_team <- train(team_score ~., data = train,
+                  method = "glmboost",
+                  metric = "MAE",
+                  preProc = c("center", "scale"),
+                  trControl = ctrl,
+                  tuneGrid = grid)
+
+glm_team
+glm_team$resample
+glm_team$results
+summary(glm_team) # model components
+plot(glm_team) # viz
+
+# predictions
+team_pred <- predict(glm_team, test)
+
+# model evaluation
+postResample(pred = team_pred, obs = test$team_score) # caret eval
+glm_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
+
+
+# team score gam boost model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    mstop = seq(50, 500, 50),
+    prune = c("yes", "no")
+)
+set.seed(214)
+gam_team <- train(team_score ~., data = train,
+                 method = "gamboost",
+                 metric = "MAE",
+                 preProc = c("center", "scale"),
+                 trControl = ctrl,
+                 tuneGrid = grid)
+
+gam_team
+gam_team$resample
+gam_team$results
+summary(gam_team) # model components
+plot(gam_team) # viz
+
+# predictions
+team_pred <- predict(gam_team, test)
+
+# model evaluation
+postResample(pred = team_pred, obs = test$team_score) # caret eval
+gam_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
+
+
+
+
+
+
 # opp score models ----
 # all features
 train <- nba_final %>%
@@ -1075,6 +1257,7 @@ test <- test %>%
 # opp score linear regression model ----
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+set.seed(214)
 lin_opp <- train(opp_score ~., data = train,
                  method = "lm",
                  metric = "MAE",
@@ -1114,6 +1297,7 @@ grid <- expand.grid(
     alpha = 0, 
     lambda = 10^seq(2, -3, by = -.1)
 )
+set.seed(214)
 reg_opp <- train(opp_score ~., data = train,
                  method = "glmnet",
                  metric = "MAE",
@@ -1154,6 +1338,7 @@ ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
 grid <- expand.grid(
     k = seq(2, 50, 2)
 )
+set.seed(214)
 knn_opp <- train(opp_score ~., data = train, 
                  method = "knn",
                  metric = "MAE",
@@ -1183,6 +1368,7 @@ grid <- expand.grid(
     .splitrule = "variance",
     .min.node.size = 1
 )
+set.seed(214)
 rf_opp <- train(opp_score ~., data = train,
                 method = "ranger",
                 metric = "MAE",
@@ -1191,8 +1377,9 @@ rf_opp <- train(opp_score ~., data = train,
                 tuneGrid = grid)
 
 grid <- expand.grid(
-    .mtry = seq(2, 24, 2),
+    .mtry = seq(2, 24, 2)
 )
+set.seed(214)
 rf_opp <- train(opp_score ~., data = train,
                 method = "rf",
                 metric = "MAE",
@@ -1220,6 +1407,7 @@ grid <- expand.grid(
     sigma = c(0.0005, 0.001, 0.005, 0.01),
     C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
 )
+set.seed(214)
 svm_opp <- train(opp_score ~., data = train,
                   method = "svmRadial",
                   metric = "MAE",
@@ -1230,6 +1418,7 @@ svm_opp <- train(opp_score ~., data = train,
 grid <- expand.grid(
     C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
 )
+set.seed(214)
 svm_opp <- train(opp_score ~., data = train,
                   method = "svmLinear",
                   metric = "MAE",
@@ -1331,7 +1520,33 @@ xgb_opp_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
 xgb_opp_imp
 
 
+# team score glm boost model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+grid <- expand.grid(
+    mstop = seq(50, 500, 50),
+    prune = c("yes", "yes")
+)
+set.seed(214)
+glm_opp <- train(opp_score ~., data = train,
+                  method = "glmboost",
+                  metric = "MAE",
+                  preProc = c("center", "scale"),
+                  trControl = ctrl,
+                  tuneGrid = grid)
 
+glm_opp
+glm_opp$resample
+glm_opp$results
+summary(glm_opp) # model components
+plot(glm_opp) # viz
+
+# predictions
+opp_pred <- predict(glm_opp, test)
+
+# model evaluation
+postResample(pred = opp_pred, obs = test$opp_score) # caret eval
+glm_opp_metrics <- postResample(pred = opp_pred, obs = test$opp_score)[1]
 
 
 
