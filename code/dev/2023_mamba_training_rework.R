@@ -472,11 +472,21 @@ model_outputs <- model_outputs %>%
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
 grid <- expand.grid(
-    sigma = c(0.005, 0.01, 0.05),
-    C = c(0.25, 0.5)
+    sigma = c(0.001),
+    C = c(0.95)
 )
 svm_team <- train(team_score ~., data = train,
                   method = "svmRadial",
+                  preProc = c("center", "scale"),
+                  trControl = ctrl,
+                  tuneGrid = grid)
+
+grid <- expand.grid(
+    C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
+)
+svm_team <- train(team_score ~., data = train,
+                  method = "svmLinear",
+                  preProc = c("center", "scale"),
                   trControl = ctrl,
                   tuneGrid = grid)
 
