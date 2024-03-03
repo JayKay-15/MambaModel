@@ -49,21 +49,21 @@ nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_long_odds")
         location = if_else(location == "away", 1, 0)
     )
 
-nba_final <- read_rds("../MambaModel/pace_adj_10.rds")
-nba_final <- read_rds("../NBAdb/models/nba_final_full_10.rds")
+# nba_final <- read_rds("../MambaModel/pace_adj_10.rds")
+# nba_final <- read_rds("../NBAdb/models/nba_final_full_10.rds")
 # model_outputs <- read_rds("./backest_output/model_outputs_w15.rds")
 
-nba_final <- nba_final %>%
-    filter(season_year >= 2020) %>%
-    rename(team_winner = wl,
-           team_score = pts,
-           opp_score = opp_pts) %>%
-    mutate(
-        game_date = as_date(game_date, origin ="1970-01-01"),
-        team_winner = if_else(team_winner == "W", "win", "loss"),
-        team_winner = factor(team_winner, levels = c("win", "loss")),
-        location = if_else(location == "away", 1, 0)
-    )
+# nba_final <- nba_final %>%
+#     filter(season_year >= 2020) %>%
+#     rename(team_winner = wl,
+#            team_score = pts,
+#            opp_score = opp_pts) %>%
+#     mutate(
+#         game_date = as_date(game_date, origin ="1970-01-01"),
+#         team_winner = if_else(team_winner == "W", "win", "loss"),
+#         team_winner = factor(team_winner, levels = c("win", "loss")),
+#         location = if_else(location == "away", 1, 0)
+#     )
 
 # correlations ----
 set.seed(214)
@@ -160,7 +160,7 @@ cor_mx <- as.matrix(cor_mx[order(abs(cor_mx[,1]), decreasing = T),])
 cor_mx
 
 # clear environment ----
-rm(list=ls()[! ls() %in% c("nba_final", "cor_cols")])
+rm(list=ls()[! ls() %in% c("nba_final", "cor_cols", "cl")])
 
 
 # team winner models ----
@@ -178,8 +178,13 @@ test <- nba_final %>%
     select(-contains("_rating"))
 
 # highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-test <- test %>% select(-all_of(cor_cols))
+train <- train %>%
+    select(-all_of(cor_cols)) %>%
+    mutate(across(location:opp_is_b2b_second, factor))
+
+test <- test %>%
+    select(-all_of(cor_cols)) %>%
+    mutate(across(location:opp_is_b2b_second, factor))
 
 # # normalize features
 # pre_proc_val <- preProcess(train[,-c(1:6)], method = c("center", "scale"))
@@ -372,7 +377,7 @@ ctrl <- trainControl(method = "cv", number = 5, verboseIter = F,
 grid <- expand.grid(
     .mtry = 1:7,
     .splitrule = "gini",
-    .min.node.size = 1:4
+    .min.node.size = 1
 )
 rf_win <- train(team_winner ~., data = train,
                 method = "ranger",
@@ -431,25 +436,28 @@ rf_win_metrics <- postResample(pred = pred, obs = obs)[1]
 
 # team winner support vector machines model ----
 # model
+# ctrl <- trainControl(method = "cv", number = 5, verboseIter = F, 
+#                      classProbs = T, summaryFunction = twoClassSummary)
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = F, 
-                     classProbs = T, summaryFunction = twoClassSummary)
+                     classProbs = T)
 grid <- expand.grid(
     sigma = c(0.001, 0.005, 0.01, 0.05),
-    C = c(0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
+    C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
 )
 svm_win <- train(team_winner ~., data = train,
                  method = "svmRadial",
-                 metric = "ROC",
+                 # metric = "ROC",
                  preProc = c("center", "scale"),
                  trControl = ctrl,
                  tuneGrid = grid)
 
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = F, 
+                     classProbs = T)
 grid <- expand.grid(
-    C = c(0.0025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
+    C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
 )
 svm_win <- train(team_winner ~., data = train,
                  method = "svmLinear",
-                 metric = "ROC",
                  preProc = c("center", "scale"),
                  trControl = ctrl,
                  tuneGrid = grid)
@@ -508,13 +516,15 @@ svm_win_metrics <- postResample(pred = pred, obs = obs)[1]
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = F, 
                      classProbs = T, summaryFunction = twoClassSummary)
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = F, 
+                     classProbs = T)
 grid <- expand.grid(
     decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5),
     size = c(1, 3, 5, 7, 9)
 )
 nn_win <- train(team_winner ~., data = train,
                 method = "nnet",
-                metric = "ROC",
+                # metric = "ROC",
                 preProc = c("center", "scale"),
                 trControl = ctrl,
                 tuneGrid = grid)
@@ -526,7 +536,7 @@ grid <- expand.grid(
 )
 nn_win <- train(team_winner ~., data = train,
                 method = "avNNet",
-                metric = "ROC",
+                # metric = "ROC",
                 preProc = c("center", "scale"),
                 trControl = ctrl,
                 tuneGrid = grid)
@@ -537,7 +547,7 @@ grid <- expand.grid(
 )
 nn_win <- train(team_winner ~., data = train,
                 method = "pcaNNet",
-                metric = "ROC",
+                # metric = "ROC",
                 preProc = c("center", "scale"),
                 trControl = ctrl,
                 tuneGrid = grid)
@@ -604,35 +614,57 @@ nn_win_imp
 
 # team winner extreme gradient boosting model ----
 # model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = F, 
-                     classProbs = T, summaryFunction = twoClassSummary)
-grid <- expand.grid(
-    nrounds = seq(100, 10000, 100),
-    eta = c(0.01, 0.015, 0.025, 0.05, 0.1),
-    max_depth = c(2, 3, 4, 5, 6),
-    gamma = c(0, 0.05, 0.1, 0.5, 0.7, 0.9, 1.0),
-    colsample_bytree = c(0.4, 0.6, 0.8, 1.0),
-    min_child_weight = c(1, 2, 3),
-    subsample = c(0.5, 0.75, 1.0)
-)
+# ctrl <- trainControl(method = "cv", number = 5, verboseIter = F, 
+#                      classProbs = T, summaryFunction = twoClassSummary)
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
+                     classProbs = T)
+# grid <- expand.grid(
+#     nrounds = seq(100, 10000, 100),
+#     eta = c(0.01, 0.015, 0.025, 0.05, 0.1),
+#     max_depth = c(2, 3, 4, 5, 6),
+#     gamma = c(0, 0.05, 0.1, 0.5, 0.7, 0.9, 1.0),
+#     colsample_bytree = c(0.4, 0.6, 0.8, 1.0),
+#     min_child_weight = c(1, 2, 3),
+#     subsample = c(0.5, 0.75, 1.0)
+# )
 xgb_win <- train(team_winner ~., data = train,
                  method = "xgbTree",
-                 metric = "ROC",
+                 # metric = "ROC",
                  preProc = c("center", "scale"),
                  trControl = ctrl,
                  tuneGrid = grid)
 xgb_tune <- xgb_win
 
+unregister_dopar <- function() {
+    env <- foreach:::.foreachGlobals
+    rm(list=ls(name=env), pos=env)
+}
+
+unregister_dopar()
 
 grid <- expand.grid(
-    nrounds = seq(100, 1000, 100),
+    nrounds = xgb_tune$bestTune$nrounds,
+    eta = xgb_tune$bestTune$eta,
+    max_depth = xgb_tune$bestTune$max_depth,
+    gamma = xgb_tune$bestTune$gamma,
+    colsample_bytree = xgb_tune$bestTune$colsample_bytree,
+    min_child_weight = xgb_tune$bestTune$min_child_weight,
+    subsample = xgb_tune$bestTune$subsample
+)
+
+
+
+
+
+grid <- expand.grid(
+    nrounds = 1000,
     eta = c(0.01, 0.015, 0.025, 0.05, 0.1),
     lambda = 1,
     alpha = 0
 )
 xgb_win <- train(team_winner ~., data = train,
                  method = "xgbLinear",
-                 metric = "ROC",
+                 # metric = "ROC",
                  preProc = c("center", "scale"),
                  trControl = ctrl,
                  tuneGrid = grid)
@@ -703,8 +735,13 @@ test <- nba_final %>%
 #     select(season_year:home_implied_prob)
 
 # highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-test <- test %>% select(-all_of(cor_cols))
+train <- train %>%
+    select(-all_of(cor_cols)) %>%
+    mutate(across(location:opp_is_b2b_second, factor))
+
+test <- test %>%
+    select(-all_of(cor_cols)) %>%
+    mutate(across(location:opp_is_b2b_second, factor))
 
 # # normalize features
 # pre_proc_val <- preProcess(train[,-c(1:6)], method = c("center", "scale"))
@@ -718,6 +755,7 @@ test <- test %>% select(-all_of(cor_cols))
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = F)
 lin_team <- train(team_score ~., data = train,
                   method = "lm",
+                  metric = "MAE",
                   preProc = c("center", "scale"),
                   trControl = ctrl)
 
@@ -756,6 +794,7 @@ grid <- expand.grid(
 )
 reg_team <- train(team_score ~., data = train,
                   method = "glmnet",
+                  metric = "MAE",
                   preProc = c("center", "scale"),
                   trControl = ctrl,
                   tuneGrid = grid)
@@ -794,6 +833,7 @@ grid <- expand.grid(
 )
 knn_team <- train(team_score ~., data = train, 
                   method = "knn",
+                  metric = "MAE",
                   preProc = c("center", "scale"),
                   trControl = ctrl,
                   tuneGrid = grid)
@@ -814,14 +854,15 @@ knn_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 # team score random forest model ----
 # model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = F)
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
 grid <- expand.grid(
-    .mtry = 1:7,
+    .mtry = seq(2, 24, 2),
     .splitrule = "variance",
-    .min.node.size = 1:4
+    .min.node.size = 1
 )
 rf_team <- train(team_score ~., data = train,
                  method = "ranger",
+                 metric = "MAE",
                  preProc = c("center", "scale"),
                  trControl = ctrl,
                  tuneGrid = grid)
@@ -831,6 +872,7 @@ grid <- expand.grid(
 )
 rf_team <- train(team_score ~., data = train,
                  method = "rf",
+                 metric = "MAE",
                  preProc = c("center", "scale"),
                  trControl = ctrl,
                  tuneGrid = grid)
@@ -850,13 +892,24 @@ rf_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 # team score support vector machines model ----
 # model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = F)
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
 grid <- expand.grid(
-    sigma = c(0.005, 0.01, 0.05),
-    C = c(0.25, 0.5)
+    sigma = c(0.0005, 0.001, 0.005, 0.01),
+    C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
 )
 svm_team <- train(team_score ~., data = train,
                   method = "svmRadial",
+                  metric = "MAE",
+                  preProc = c("center", "scale"),
+                  trControl = ctrl,
+                  tuneGrid = grid)
+
+grid <- expand.grid(
+    C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
+)
+svm_team <- train(team_score ~., data = train,
+                  method = "svmLinear",
+                  metric = "MAE",
                   preProc = c("center", "scale"),
                   trControl = ctrl,
                   tuneGrid = grid)
@@ -877,17 +930,51 @@ svm_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 # team score neural net model ----
 # model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = F)
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
 grid <- expand.grid(
     decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7),
-    size = c(1, 3, 5, 10, 20)
+    size = c(1, 3, 5, 7, 9)
 )
 nn_team <- train(team_score ~., data = train,
                  method = "nnet",
+                 metric = "MAE",
                  preProc = c("center", "scale"),
                  trControl = ctrl,
                  tuneGrid = grid,
                  linout = 1)
+
+nn_team <- train(team_score ~., data = train,
+                 method = "nnet",
+                 # algorithm = "backprop",
+                 metric = "MAE",
+                 preProc = c("center", "scale"),
+                 trControl = ctrl,
+                 tuneLength = 5,
+                 maxit = 1000,
+                 linout = 1)
+
+grid <- expand.grid(
+    decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5),
+    size = c(1, 3, 5, 7, 9),
+    bag = FALSE
+)
+nn_win <- train(team_score ~., data = train,
+                method = "avNNet",
+                metric = "MAE",
+                preProc = c("center", "scale"),
+                trControl = ctrl,
+                tuneLength = 5)
+
+grid <- expand.grid(
+    decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5),
+    size = c(1, 3, 5, 7, 9)
+)
+nn_win <- train(team_score ~., data = train,
+                method = "pcaNNet",
+                metric = "MAE",
+                preProc = c("center", "scale"),
+                trControl = ctrl,
+                tuneLength = 5)
 
 nn_team
 nn_team$resample
@@ -970,22 +1057,29 @@ test <- nba_final %>%
     select(-contains("_rating"))
 
 # highly correlated features removed
-train <- train %>% select(-all_of(cor_cols))
-test <- test %>% select(-all_of(cor_cols))
+train <- train %>%
+    select(-all_of(cor_cols)) %>%
+    mutate(across(location:opp_is_b2b_second, factor))
 
-# normalize features
-pre_proc_val <- preProcess(train[,-c(1:6)], method = c("center", "scale"))
+test <- test %>%
+    select(-all_of(cor_cols)) %>%
+    mutate(across(location:opp_is_b2b_second, factor))
 
-train[,-c(1:6)] = predict(pre_proc_val, train[,-c(1:6)])
-test[,-c(1:6)] = predict(pre_proc_val, test[,-c(1:6)])
+# # normalize features
+# pre_proc_val <- preProcess(train[,-c(1:6)], method = c("center", "scale"))
+# 
+# train[,-c(1:6)] = predict(pre_proc_val, train[,-c(1:6)])
+# test[,-c(1:6)] = predict(pre_proc_val, test[,-c(1:6)])
 
 
 # opp score linear regression model ----
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
 lin_opp <- train(opp_score ~., data = train,
-                 trControl = ctrl,
-                 method = "lm")
+                 method = "lm",
+                 metric = "MAE",
+                 preProc = c("center", "scale"),
+                 trControl = ctrl)
 
 lin_opp
 lin_opp$resample
@@ -1022,6 +1116,8 @@ grid <- expand.grid(
 )
 reg_opp <- train(opp_score ~., data = train,
                  method = "glmnet",
+                 metric = "MAE",
+                 preProc = c("center", "scale"),
                  trControl = ctrl,
                  tuneGrid = grid)
 
@@ -1060,6 +1156,8 @@ grid <- expand.grid(
 )
 knn_opp <- train(opp_score ~., data = train, 
                  method = "knn",
+                 metric = "MAE",
+                 preProc = c("center", "scale"),
                  trControl = ctrl,
                  tuneGrid = grid)
 
@@ -1081,12 +1179,24 @@ knn_opp_metrics <- postResample(pred = team_pred, obs = test$opp_score)[1]
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
 grid <- expand.grid(
-    .mtry = seq(2, 18, 2),
+    .mtry = seq(2, 24, 2),
     .splitrule = "variance",
     .min.node.size = 1
 )
 rf_opp <- train(opp_score ~., data = train,
                 method = "ranger",
+                metric = "MAE",
+                preProc = c("center", "scale"),
+                trControl = ctrl,
+                tuneGrid = grid)
+
+grid <- expand.grid(
+    .mtry = seq(2, 24, 2),
+)
+rf_opp <- train(opp_score ~., data = train,
+                method = "rf",
+                metric = "MAE",
+                preProc = c("center", "scale"),
                 trControl = ctrl,
                 tuneGrid = grid)
 
@@ -1107,13 +1217,25 @@ rf_opp_metrics <- postResample(pred = team_pred, obs = test$opp_score)[1]
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
 grid <- expand.grid(
-    sigma = c(0.005, 0.01, 0.05),
-    C = c(0.25, 0.5)
+    sigma = c(0.0005, 0.001, 0.005, 0.01),
+    C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
 )
 svm_opp <- train(opp_score ~., data = train,
-                 method = "svmRadial",
-                 trControl = ctrl,
-                 tuneGrid = grid)
+                  method = "svmRadial",
+                  metric = "MAE",
+                  preProc = c("center", "scale"),
+                  trControl = ctrl,
+                  tuneGrid = grid)
+
+grid <- expand.grid(
+    C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
+)
+svm_opp <- train(opp_score ~., data = train,
+                  method = "svmLinear",
+                  metric = "MAE",
+                  preProc = c("center", "scale"),
+                  trControl = ctrl,
+                  tuneGrid = grid)
 
 svm_opp
 svm_opp$resample
@@ -1134,10 +1256,12 @@ svm_opp_metrics <- postResample(pred = opp_pred, obs = test$opp_score)[1]
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
 grid <- expand.grid(
     decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7),
-    size = c(1, 3, 5, 10, 20)
+    size = c(1, 3, 5, 10)
 )
 nn_opp <- train(opp_score ~., data = train,
                 method = "nnet",
+                metric = "MAE",
+                preProc = c("center", "scale"),
                 trControl = ctrl,
                 tuneGrid = grid,
                 linout = 1)
