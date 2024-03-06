@@ -772,7 +772,8 @@ confusionMatrix(test$team_winner,
 
 
 
-# team winner ensemble model ---- https://www.stepbystepdatascience.com/hyperparameter-tuning-and-model-stacking-with-caret
+# team winner ensemble model ----
+# https://www.stepbystepdatascience.com/hyperparameter-tuning-and-model-stacking-with-caret
 # model
 library(caretEnsemble)
 ensem_control <- trainControl(method = "adaptive_cv", number = 5, repeats = 5,
