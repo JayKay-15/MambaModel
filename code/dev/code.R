@@ -414,10 +414,494 @@ set.seed(214)
 
 # https://www.stepbystepdatascience.com/ml-with-tidymodels
 
-nba_final <- read_rds("/Users/kartesj/OneDrive - Trinity Industries Inc/Personal/nba_final_w10.rds")
+
+nba_final_cor <- read_rds("/Users/kartesj/OneDrive - Trinity Industries Inc/Personal/nba_final_w10.rds")
 # model_outputs <- read_rds("/Users/kartesj/OneDrive - Trinity Industries Inc/Personal/model_outputs.rds")
 
-nba_final <- nba_final %>%
+nba_final <- nba_final_cor %>%
+    filter(season_year >= 2020) %>%
+    mutate(
+        game_date = as_date(game_date, origin ="1970-01-01"),
+        team_winner = factor(team_winner, levels = c("win", "loss")),
+        location = if_else(location == "away", 1, 0),
+        across(c(location, is_b2b_first:opp_is_b2b_second), factor)
+        # location = if_else(location == "away", 1, 0)
+    )
+
+
+# # correlations ----
+# feature correlations
+cor_df <- nba_final_cor %>%
+    select(is_b2b_first:opp_is_b2b_second, over_under, team_implied_prob,
+           team_fgm:opp_opp_pct_uast_fgm) %>%
+    select(-contains("_rating"))
+
+# check for extreme correlation
+cor_mx <- cor(cor_df)
+
+# find highly correlated features
+cor_cols <- findCorrelation(cor_mx, cutoff = .5, exact = F, names = T)
+cor_cols
+
+
+# clear environment ----
+rm(list=ls()[! ls() %in% c("nba_final", "cor_cols", "cl")])
+
+## team winner models ----
+# all features
+train <- nba_final %>%
+    filter(season_year <= 2022) %>%
+    select(team_winner, location, is_b2b_first:opp_is_b2b_second, over_under,
+           team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
+    select(-contains("_rating"))
+
+test <- nba_final %>%
+    filter(season_year > 2022) %>%
+    select(team_winner, location, is_b2b_first:opp_is_b2b_second, over_under,
+           team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
+    select(-contains("_rating"))
+
+# highly correlated features removed
+train <- train %>%
+    select(-all_of(cor_cols)) %>%
+    mutate(across(location:opp_is_b2b_second, factor))
+
+test <- test %>%
+    select(-all_of(cor_cols)) %>%
+    mutate(across(location:opp_is_b2b_second, factor))
+
+
+
+modelLookup()
+
+# team winner extreme gradient boosting model ----
+# model
+# ctrl <- trainControl(method = "cv", number = 5, verboseIter = F, 
+#                      classProbs = T, summaryFunction = twoClassSummary)
+ctrl <- trainControl(method = "cv", number = 3, verboseIter = T, 
+                     classProbs = T)
+# grid <- expand.grid(
+#     nrounds = seq(100, 10000, 100),
+#     eta = c(0.01, 0.015, 0.025, 0.05, 0.1),
+#     max_depth = c(2, 3, 4, 5, 6),
+#     gamma = c(0, 0.05, 0.1, 0.5, 0.7, 0.9, 1.0),
+#     colsample_bytree = c(0.4, 0.6, 0.8, 1.0),
+#     min_child_weight = c(1, 2, 3),
+#     subsample = c(0.5, 0.75, 1.0)
+# )
+xgb_win <- train(team_winner ~., data = train,
+                 method = "xgbTree",
+                 # metric = "ROC",
+                 preProc = c("center", "scale"),
+                 trControl = ctrl,
+                 tuneGrid = grid)
+xgb_tune <- xgb_win
+
+unregister_dopar <- function() {
+    env <- foreach:::.foreachGlobals
+    rm(list=ls(name=env), pos=env)
+}
+
+unregister_dopar()
+
+grid <- expand.grid(
+    nrounds = xgb_tune$bestTune$nrounds,
+    eta = xgb_tune$bestTune$eta,
+    max_depth = xgb_tune$bestTune$max_depth,
+    gamma = xgb_tune$bestTune$gamma,
+    colsample_bytree = xgb_tune$bestTune$colsample_bytree,
+    min_child_weight = xgb_tune$bestTune$min_child_weight,
+    subsample = xgb_tune$bestTune$subsample
+)
+
+grid <- expand.grid(
+    nrounds = 1000,
+    eta = c(0.01, 0.015, 0.025, 0.05, 0.1),
+    lambda = 1,
+    alpha = 0
+)
+xgb_win <- train(team_winner ~., data = train,
+                 method = "xgbLinear",
+                 # metric = "ROC",
+                 preProc = c("center", "scale"),
+                 trControl = ctrl,
+                 tuneGrid = grid)
+xgb_tune <- xgb_win
+
+
+# ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 5,
+#                      verboseIter = T, classProbs = T, search = "random")
+
+ctrl <- trainControl(method = "adaptive_cv", number = 5, repeats = 1,
+                     verboseIter = T, classProbs = T,
+                     adaptive = list(min = 3,     # minimum number of resamples before elimination is possible
+                                     alpha = 0.05,     # confidence level used to eliminate hyperparameter combos
+                                     method = "gls",  
+                                     complete = TRUE))
+
+
+
+
+ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 1,
+                     verboseIter = T, classProbs = T)
+
+# https://www.analyticsvidhya.com/blog/2016/03/complete-guide-parameter-tuning-xgboost-with-codes-python/#:~:text=What%20parameters%20should%20you%20use,minimum%20child%20weight%20(min_child_weight).
+# https://ml-course.kazsakamoto.com/Labs/hyperparameterTuning.html
+# https://www.kaggle.com/code/pelkoja/visual-xgboost-tuning-with-caret
+# https://www.hackerearth.com/practice/machine-learning/machine-learning-algorithms/beginners-tutorial-on-xgboost-parameter-tuning-r/tutorial/
+
+# grid <- expand.grid(
+#     nrounds = 100,
+#     eta = c(0.1),
+#     max_depth = c(2),
+#     gamma = 0,
+#     colsample_bytree = c(0.9),
+#     min_child_weight = c(3),
+#     subsample = c(0.9)
+# )
+
+grid <- expand.grid(
+    nrounds = c(200),
+    eta = c(0.025),
+    max_depth = c(2),
+    gamma = c(5),
+    colsample_bytree = c(1),
+    min_child_weight = c(2),
+    subsample = c(1)
+)
+
+# random
+# ctrl <- trainControl(method = "adaptive_cv", number = 5, repeats = 1,
+#                      verboseIter = T, classProbs = T, search = "random",
+#                      adaptive = list(min = 3,     # minimum number of resamples before elimination is possible
+#                                      alpha = 0.05,     # confidence level used to eliminate hyperparameter combos
+#                                      method = "gls",  
+#                                      complete = TRUE))
+tic()
+set.seed(214)
+# xgb_win <- train(team_winner ~., data = train,
+#                  method = "xgbTree",
+#                  # metric = "ROC",
+#                  # preProc = c("center", "scale", "YeoJohnson"),
+#                  trControl = ctrl,
+#                  tuneLength = 25)
+
+# xgb_win <- train(team_winner ~., data = train,
+#                  method = "xgbTree",
+#                  # metric = "ROC",
+#                  # preProc = c("center", "scale", "YeoJohnson"),
+#                  trControl = ctrl,
+#                  tuneGrid = grid)
+
+# grid <- expand.grid(
+#     trials  = seq(1, 7, 1),
+#     winnow  = c(TRUE, FALSE),
+#     model = c("rules", "trees")
+# )
+
+# grid <- expand.grid(
+#     trials  = c(5, 10, 15),
+#     winnow  = c(TRUE, FALSE),
+#     model = c("rules", "trees"),
+#     cost = c(1, 2, 3)
+# )
+
+
+# xgb_win <- train(team_winner ~., data = train,
+#                  method = "C5.0",
+#                  # metric = "ROC",
+#                  # preProc = c("center", "scale", "YeoJohnson"),
+#                  trControl = ctrl,
+#                  tuneGrid = grid)
+
+
+# xgb_win <- train(team_winner ~., data = train,
+#                  method = "C5.0Cost",
+#                  # metric = "ROC",
+#                  # preProc = c("center", "scale", "YeoJohnson"),
+#                  trControl = ctrl,
+#                  tuneGrid = grid)
+
+xgb_win <- train(team_winner ~., data = train,
+                 method = "earth",
+                 # metric = "ROC",
+                 preProc = c("center", "scale", "YeoJohnson"),
+                 trControl = ctrl,
+                 tuneLength = 15)
+
+
+toc()
+getTrainPerf(xgb_win)
+xgb_win
+xgb_win$resample
+xgb_win$results
+summary(xgb_win) # model components
+confusionMatrix(xgb_win) # confusion matrix
+plot(xgb_win) # viz
+
+# predictions
+win_pred <- predict(xgb_win, test, type = "prob")
+confusionMatrix(test$team_winner,
+                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
+                       levels = c("win","loss")),
+                positive = "win")
+
+team_pred <- as.numeric(win_pred[,1])
+opp_pred <- as.numeric(win_pred[,2])
+obs <- test$team_winner
+pred <- factor(ifelse(team_pred > 0.5, "win", "loss"), levels = c("win","loss"))
+obs_pred <- data.frame(obs = obs,
+                       pred = pred,
+                       win = team_pred, 
+                       loss = opp_pred)
+
+# model evaluation
+twoClassSummary(obs_pred, lev = levels(obs)) # roc
+prSummary(obs_pred, lev = levels(obs)) # auc
+mnLogLoss(obs_pred, lev = levels(obs)) # log loss
+
+roc_score <- pROC::roc(test$team_winner, team_pred, plot = T, legacy.axes = T,
+                       percent = T,
+                       xlab="False Positive Percentage",
+                       ylab="True Postive Percentage",
+                       col="#377eb8", lwd = 4, print.auc = T) # roc chart
+
+postResample(pred = pred, obs = obs) # caret eval
+
+# feature importance
+importance <- varImp(xgb_win, scale = F)
+plot(importance)
+
+xgb_win_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
+    arrange(desc(Overall)) %>%
+    head(20)
+xgb_win_imp
+
+
+# team winner boosted generalized linear model ----
+# model
+ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
+                     classProbs = T)
+grid <- expand.grid(
+    mstop = seq(50, 500, 50),
+    prune = c("no")
+)
+set.seed(214)
+glm_win <- train(team_winner ~., data = train,
+                 method = "glmboost",
+                 # metric = "ROC",
+                 preProc = c("center", "scale"),
+                 trControl = ctrl,
+                 tuneGrid = grid)
+
+glm_win
+glm_win$resample
+glm_win$results
+summary(glm_win) # model components
+confusionMatrix(glm_win) # confusion matrix
+plot(glm_win)
+
+# predictions
+win_pred <- predict(glm_win, test, type = "prob")
+confusionMatrix(test$team_winner,
+                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
+                       levels = c("win","loss")),
+                positive = "win")
+
+
+
+# team winner ensemble model ---- 
+# https://www.stepbystepdatascience.com/hyperparameter-tuning-and-model-stacking-with-caret
+# model
+library(caretEnsemble)
+# ensem_control <- trainControl(method = "adaptive_cv", number = 5, repeats = 5,
+#                               verboseIter = T, classProbs = T,
+#                               adaptive = list(min = 5,
+#                                               alpha = 0.05,
+#                                               method = "gls",
+#                                               complete = TRUE),
+#                               search = "random",
+#                               savePredictions = "final") # this is needed so we can ensemble later
+
+ensem_control <- trainControl(method = "cv", number = 5,
+                              verboseIter = T, classProbs = T,
+                              index = createFolds(train$team_winner),
+                              savePredictions = "final") # this is needed so we can ensemble later
+
+glmnet_grid <- expand.grid(
+    alpha = 0, # ridge = 0 / lasso = 1
+    lambda = 10^seq(2, -3, by = -.1)
+)
+nn_grid <- expand.grid(
+    decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5),
+    size = c(1, 3, 5, 7, 9)
+)
+svm_grid <- expand.grid(
+    sigma = c(0.001, 0.005, 0.01, 0.05),
+    C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
+)
+
+set.seed(214)
+all_in_one <- caretList(team_winner ~., data = train,
+                        trControl = ensem_control,
+                        preProc = c("center", "scale"),
+                        tuneList=list(glmnet = caretModelSpec(method = "glmnet",
+                                                              tuneGrid = glmnet_grid),
+                                      nn = caretModelSpec(method = "pcaNNet",
+                                                          tuneGrid = nn_grid,
+                                                          maxit = 1000),
+                                      svm = caretModelSpec(method = "svmRadial",
+                                                           tuneGrid = svm_grid)))
+# Have a look at the models
+rbind(getTrainPerf(all_in_one$"glmnet"),
+      getTrainPerf(all_in_one$"nn"),
+      getTrainPerf(all_in_one$"svm")) %>% 
+    arrange(desc(TrainAccuracy))
+
+# Plot the results
+bwplot(resamples(all_in_one))
+
+# Have a look at the correlation amongst the models
+modelCor(resamples(all_in_one))
+
+# Add on average correlation amongst models
+rbind(as_tibble(modelCor(resamples(all_in_one)), rownames = "models"),
+      summarise_all(as_tibble(modelCor(resamples(all_in_one))), mean) %>% 
+          mutate(models = "average") %>% 
+          select(models, everything()))
+
+# Caret ensemble will ensemble all models in your list
+all_models_ensemble <- caretEnsemble(all_in_one)
+all_models_ensemble # print the performance of the stack
+
+summary(all_models_ensemble) # print a bit more detail
+
+# We can pass a trControl to our caretEnsemble too
+ensembleCtrl <- trainControl(method = "repeatedcv", # what method of resampling we want to use
+                             number = 5, # 10 folds
+                             repeats = 5) # repeated ten times
+
+cv_ensemble <- caretEnsemble(all_in_one, trControl = ensembleCtrl)
+
+summary(cv_ensemble) 
+
+
+# Create the trainControl - don't reuse the one from the model training
+stackControl <- trainControl(method = "adaptive_cv",
+                             number = 10, repeats = 5, classProbs = T,
+                             adaptive = list(min = 5,
+                                             alpha = 0.05,
+                                             method = "gls",
+                                             complete = TRUE),
+                             search = "random",
+                             savePredictions="final") 
+
+# Ensemble the predictions of `models` to form a new combined prediction based on glm
+set.seed(214)
+stack_glmnet <- caretStack(all_in_one,  # caretList
+                           method="glmnet",   # algorithm to try for our super learner
+                           # metric="MAE",
+                           tuneLength = 50,
+                           trControl = stackControl)
+
+stack_glmnet
+
+# Which model performed the best?
+as_tibble(rbind(glmnet = getTrainPerf(all_in_one$"glmnet")$TrainAccuracy,
+                nn = getTrainPerf(all_in_one$"nn")$TrainAccuracy,
+                svm = getTrainPerf(all_in_one$"svm")$TrainAccuracy,            	
+                ensemble = all_models_ensemble$error$Accuracy,
+                glmnet_stack = mean(stack_glmnet$ens_model$resample$Accuracy)),
+          rownames="models") %>% 
+    rename(Accuracy = V1) %>% 
+    arrange(desc(Accuracy))
+
+
+# We'll use the best performing model to score up our Test set
+final_model <- stack_glmnet
+
+
+win_pred <- predict(all_in_one$svm, test, type = "prob")
+
+team_pred <- as.numeric(win_pred[,1])
+opp_pred <- as.numeric(win_pred[,2])
+obs <- test$team_winner
+pred <- factor(ifelse(team_pred > 0.5, "win", "loss"), levels = c("win","loss"))
+
+# Compare performance on the Test set vs the resamples
+tibble(train = mean(all_in_one$svm$resample$Accuracy), 
+       test = postResample(pred = pred, obs = obs)["Accuracy"]) %>%
+    mutate(difference = train-test)
+
+
+
+
+
+
+
+
+
+
+
+##### tidymodels ####
+### model tuning ----  
+
+library(RSQLite) # db
+library(DBI) # db
+
+library(tidyverse)
+library(caret) # model training
+library(tidymodels) # model eval
+library(finetune)   # package for more advanced hyperparameter tuning 
+library(ggfortify) # autoplot
+library(doParallel) # parallel
+
+library(embed)      # use the create embeddings for categorical features
+library(stacks)     # used for stacking models 
+library(rules)      # contains the cubist modelling algorithm
+library(vip)        # variable importance plots
+library(brulee)     # torch model
+library(bonsai)
+library(tictoc)     # measure how long processes take
+
+# Check how many cores you have to work with
+detectCores()
+
+# Set the number of clusters tidymodels has to work with
+cl <- makePSOCKcluster(6)  # Create 8 clusters
+registerDoParallel(cl)
+getDoParWorkers()
+
+# Turn off the parallel processing once you're finished with it
+stopCluster(cl)
+registerDoSEQ()
+
+options(scipen = 999999)
+set.seed(214)
+
+# https://www.stepbystepdatascience.com/ml-with-tidymodels
+# https://www.stepbystepdatascience.com/tuning-hyperparameters-tidymodels
+
+
+# pull all historical data
+nba_final_cor <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_long_odds") %>%
+    collect() %>%
+    filter(season_year >= 2020) %>%
+    rename(team_winner = wl,
+           team_score = pts,
+           opp_score = opp_pts) %>%
+    mutate(
+        game_date = as_date(game_date, origin ="1970-01-01"),
+        team_winner = if_else(team_winner == "W", "win", "loss"),
+        team_winner = factor(team_winner, levels = c("win", "loss")),
+        location = if_else(location == "away", 1, 0)
+    )
+
+
+nba_final_cor <- read_rds("/Users/kartesj/OneDrive - Trinity Industries Inc/Personal/nba_final_w10.rds")
+# model_outputs <- read_rds("/Users/kartesj/OneDrive - Trinity Industries Inc/Personal/model_outputs.rds")
+
+nba_final <- nba_final_cor %>%
     filter(season_year >= 2020) %>%
     mutate(
         game_date = as_date(game_date, origin ="1970-01-01"),
@@ -427,10 +911,9 @@ nba_final <- nba_final %>%
     )
 
 
-
 # # correlations ----
 # feature correlations
-cor_df <- nba_final %>%
+cor_df <- nba_final_cor %>%
     select(is_b2b_first:opp_is_b2b_second, over_under, team_implied_prob,
            team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
@@ -447,7 +930,7 @@ cor_cols
 rm(list=ls()[! ls() %in% c("nba_final", "cor_cols", "cl")])
 
 
-# team winner models ----
+# team score models ----
 # all features
 train <- nba_final %>%
     filter(season_year <= 2022) %>%
@@ -471,6 +954,370 @@ test <- test %>%
     mutate(across(location:opp_is_b2b_second, factor))
 
 
+# Create train-test set
+train_test_split <- make_splits(x = train, assessment = test)
+# train_test_split <- initial_split(nba_final,
+#                                   prop = 0.8,      # take a 10% sample for Train
+#                                   strata = team_winner) # tell tidymodels to keep the distribution of team_winner the same in each sample
+train_test_split
+
+test  <- testing(train_test_split)  # create the test set
+train <- training(train_test_split) # create the train set
+
+# Examine data
+skimr::skim(train)
+
+# team_score histogram
+ggplot(train, aes(x = team_score)) +
+    geom_histogram()  +
+    ggtitle(paste0("Histogram of team_score"))
+
+#### tidymodels tuning ----
+## Team Score Linear Model ----
+# k-fold cross-validation - vfold_cv()
+train_cv <- vfold_cv(train, v = 5, repeats = 1) # create resampling scheme on train
+
+# Create recipe
+ts_recipe <- recipe(team_score ~ ., data = train) %>%
+    step_dummy(location, is_b2b_first:opp_is_b2b_second) %>%
+    step_corr(all_numeric_predictors()) %>%
+    step_normalize(all_numeric_predictors()) %>%
+    step_nzv(all_predictors())
+
+# Model specification
+lm_spec <- linear_reg() %>%
+    set_engine("lm") %>%
+    set_mode("regression")
+
+lm_workflow <- workflow() %>%
+    add_recipe(ts_recipe) %>% # add in our newly created recipe
+    add_model(lm_spec) # add the model spec we made earlier
+
+# lm_model <- fit_resamples(lm_workflow,
+#                           resamples = train_cv,
+#                           control = control_resamples(save_pred = T,
+#                                                       save_workflow = T,
+#                                                       verbose = T),
+#                           metrics = metric_set(mae))
+# 
+# # Helper functions
+# show_best(lm_model, metric = "mae")
+# collect_metrics(lm_model)
+# collect_predictions(lm_model)
+
+# Fit model
+lm_res <- lm_workflow %>%
+    last_fit(train_test_split,  metrics = metric_set(mae))
+
+# See how it performs on the Test set
+collect_metrics(lm_res)
+collect_predictions(lm_res)
+lm_res %>% extract_fit_parsnip() %>% tidy()
+
+
+
+# team score regularization model ----
+# k-fold cross-validation
+train_cv <- vfold_cv(train, v = 5, repeats = 3)
+
+# Model specification
+glmnet_spec <- linear_reg(
+    penalty = tune(),
+    mixture = tune()
+) %>%
+    set_engine("glmnet") %>%
+    set_mode("regression")
+
+# Create recipe
+ts_recipe <- recipe(team_score ~ ., data = train) %>%
+    step_dummy(location, is_b2b_first:opp_is_b2b_second) %>%
+    step_corr(all_numeric_predictors()) %>%
+    step_YeoJohnson(all_numeric_predictors()) %>%
+    step_nzv(all_predictors())
+
+# Create workflow
+glmnet_workflow <- workflow() %>%
+    add_recipe(ts_recipe) %>%
+    add_model(glmnet_spec)
+
+# Grid options
+manual_grid <- crossing(penalty = 10^seq(2, -3, by = -.1),
+                        mixture = c(0, 1))
+
+latin_grid <- glmnet_spec %>%
+    extract_parameter_set_dials() %>%
+    grid_latin_hypercube(size = 50)
+
+entropy_grid <- glmnet_spec %>%
+    extract_parameter_set_dials() %>%
+    grid_max_entropy(size = 50)
+
+# Test different grids
+diff_params <- function(name, x){
+    tune_grid(glmnet_workflow,
+              resamples = train_cv,
+              grid = x,
+              metrics = metric_set(mae),
+              control = control_grid(verbose = T)) %>% 
+        show_best(metric = 'mae', n = 1) %>% 
+        mutate(param_set = name)
+}
+
+latin <- diff_params("latin", latin_grid)
+entropy <- diff_params("entropy", entropy_grid)
+manual <- diff_params("manual", manual_grid)
+
+tibble(bind_rows(latin, entropy, manual))[-8]
+
+# Control
+ctrl <- control_grid(verbose = T)
+
+# Initial tune
+glmnet_initial <- tune_grid(glmnet_workflow,
+                            resamples = train_cv,
+                            grid = latin_grid,
+                            metrics = metric_set(mae),
+                            control = ctrl)
+glmnet_initial %>% show_best(metric = 'mae', n = 5)
+
+# Anneal tune
+glmnet_anneal <- tune_sim_anneal(glmnet_workflow,
+                                 resamples = train_cv,
+                                 initial = glmnet_initial,
+                                 iter = 15,
+                                 metrics = metric_set(mae),
+                                 control = control_sim_anneal(restart = 5L))  
+glmnet_anneal %>% show_best(metric = 'mae', n = 1)
+
+# Select best model
+glmnet_best_mod <- glmnet_anneal %>% select_best(metric = "mae")
+
+# Finalize model
+glmnet_final_res <- glmnet_workflow %>%
+    finalize_workflow(best_mod) %>%
+    last_fit(train_test_split, metrics = metric_set(mae))
+
+glmnet_final_mod <- extract_workflow(final_res)
+
+# Test metrics
+glmnet_final_res %>% collect_metrics()
+glmnet_final_res %>% collect_predictions()
+
+# Variable importance
+vip::vi(extract_fit_parsnip(glmnet_final_res))  # extract the variable importance scores
+vip::vip(extract_fit_parsnip(glmnet_final_res)) + # plot them
+    theme(text = element_text(size = 15)) 
+
+
+# team score random forest model ----
+# k-fold cross-validation
+train_cv <- vfold_cv(train, v = 5, repeats = 1)
+
+# Model specification
+rf_spec <- rand_forest(
+    mtry = tune(),
+    trees = 1000,
+    min_n = 5
+) %>%  
+    set_engine("ranger") %>% 
+    set_mode("regression")
+
+# Create recipe
+ts_recipe <- recipe(team_score ~ ., data = train) %>%
+    step_dummy(location, is_b2b_first:opp_is_b2b_second) %>%
+    step_corr(all_numeric_predictors()) %>%
+    step_YeoJohnson(all_numeric_predictors()) %>%
+    step_nzv(all_predictors())
+
+# Create workflow
+rf_workflow <- workflow() %>%
+    add_recipe(ts_recipe) %>%
+    add_model(rf_spec)
+
+# Grid options
+latin_grid <- rf_spec %>%
+    extract_parameter_set_dials() %>%
+    update(mtry=finalize(mtry(), prep(ts_recipe) %>% bake(train))) %>%
+    grid_latin_hypercube(size = 10)
+
+entropy_grid <- rf_spec %>%
+    extract_parameter_set_dials() %>%
+    update(mtry=finalize(mtry(), prep(ts_recipe) %>% bake(train))) %>%
+    grid_max_entropy(size = 10)
+
+# Test different grids
+diff_params <- function(name, x){
+    tune_grid(rf_workflow,
+              resamples = train_cv,
+              grid = x,
+              metrics = metric_set(mae),
+              control = control_grid(verbose = T)) %>% 
+        show_best(metric = 'mae', n = 1) %>% 
+        mutate(param_set = name)
+}
+
+latin <- diff_params("latin", latin_grid)
+entropy <- diff_params("entropy", entropy_grid)
+
+tibble(bind_rows(latin, entropy))[-8]
+
+# Control
+ctrl <- control_grid(verbose = TRUE)
+
+# Racing tune
+racing_results <- tune_race_anova(rf_workflow,
+                                  resamples = train_cv,
+                                  grid = latin_grid,
+                                  metrics = metric_set(mae),
+                                  control = control_race(verbose = TRUE))
+racing_results %>% show_best(metric = 'mae', n = 5) 
+
+# Initial tune
+rf_initial <- tune_grid(rf_workflow,
+                        resamples = train_cv,
+                        grid = latin_grid,
+                        metrics = metric_set(mae),
+                        control = control_grid(verbose = TRUE))
+rf_initial %>% show_best(metric = 'mae', n = 5)
+
+# Anneal tune
+latin_grid <- rf_workflow %>%
+    extract_parameter_set_dials() %>%
+    update(mtry=finalize(mtry(), prep(ts_recipe) %>% bake(train)))
+
+rf_anneal <- tune_sim_anneal(rf_workflow,
+                             resamples = train_cv,
+                             initial = rf_initial,
+                             iter = 15,
+                             metrics = metric_set(mae),
+                             param_info = 
+                                 control = control_sim_anneal(restart = 5L))  
+rf_anneal %>% show_best(metric = 'mae', n = 1)
+
+# Select best model
+rf_best_mod <- rf_anneal %>% select_best(metric = "mae")
+
+# Finalize model
+rf_final_res <- rf_workflow %>%
+    finalize_workflow(rf_best_mod) %>%
+    last_fit(train_test_split, metrics = metric_set(mae))
+
+rf_final_mod <- extract_workflow(rf_final_res)
+
+# Test metrics
+rf_final_res %>% collect_metrics()
+rf_final_res %>% collect_predictions()
+
+# Variable importance
+vip::vi(extract_fit_parsnip(rf_final_res))  # extract the variable importance scores
+vip::vip(extract_fit_parsnip(rf_final_res)) + # plot them
+    theme(text = element_text(size = 15)) 
+
+
+
+# team score svm model ----
+# k-fold cross-validation
+train_cv <- vfold_cv(train, v = 5, repeats = 1)
+
+# Model specification
+svm_spec <- svm_linear(
+    cost = tune(),
+    margin = tune()
+) %>%  
+    set_engine("kernlab") %>% 
+    set_mode("regression")
+
+# Create recipe
+ts_recipe <- recipe(team_score ~ ., data = train) %>%
+    step_dummy(location, is_b2b_first:opp_is_b2b_second) %>%
+    step_corr(all_numeric_predictors()) %>%
+    step_YeoJohnson(all_numeric_predictors()) %>%
+    step_nzv(all_predictors())
+
+# Create workflow
+svm_workflow <- workflow() %>%
+    add_recipe(ts_recipe) %>%
+    add_model(svm_spec)
+
+# Grid options
+latin_grid <- svm_spec %>%
+    extract_parameter_set_dials() %>%
+    grid_latin_hypercube(size = 25)
+
+entropy_grid <- svm_spec %>%
+    extract_parameter_set_dials() %>%
+    grid_max_entropy(size = 25)
+
+# Test different grids
+diff_params <- function(name, x){
+    tune_grid(svm_workflow,
+              resamples = train_cv,
+              grid = x,
+              metrics = metric_set(mae),
+              control = control_grid(verbose = T)) %>% 
+        show_best(metric = 'mae', n = 1) %>% 
+        mutate(param_set = name)
+}
+
+latin <- diff_params("latin", latin_grid)
+entropy <- diff_params("entropy", entropy_grid)
+
+tibble(bind_rows(latin, entropy))[-8]
+
+# Control
+ctrl <- control_grid(verbose = TRUE)
+
+# Racing tune
+racing_results <- tune_race_anova(svm_workflow,
+                                  resamples = train_cv,
+                                  grid = latin_grid,
+                                  metrics = metric_set(mae),
+                                  control = ctrl)
+racing_results %>% show_best(metric = 'mae', n = 5) 
+
+# Initial tune
+svm_initial <- tune_grid(svm_workflow,
+                         resamples = train_cv,
+                         grid = latin_grid,
+                         metrics = metric_set(mae),
+                         control = ctrl)
+svm_initial %>% show_best(metric = 'mae', n = 5)
+
+# Anneal tune
+svm_anneal <- tune_sim_anneal(svm_workflow,
+                              resamples = train_cv,
+                              initial = svm_initial,
+                              iter = 15,
+                              metrics = metric_set(mae),
+                              control = control_sim_anneal(restart = 5L))  
+svm_anneal %>% show_best(metric = 'mae', n = 1)
+
+# Select best model
+svm_best_mod <- svm_anneal %>% select_best(metric = "mae")
+
+# Finalize model
+svm_final_res <- svm_workflow %>%
+    finalize_workflow(svm_best_mod) %>%
+    last_fit(train_test_split, metrics = metric_set(mae))
+
+svm_final_mod <- extract_workflow(svm_final_res)
+
+# Test metrics
+svm_final_res %>% collect_metrics()
+svm_final_res %>% collect_predictions()
+
+# Variable importance
+vip::vi(extract_fit_parsnip(svm_final_res))  # extract the variable importance scores
+vip::vip(extract_fit_parsnip(svm_final_res)) + # plot them
+    theme(text = element_text(size = 15)) 
+
+
+
+
+
+
+
+##### from code file ######
 
 
 # Create train-test set
@@ -909,8 +1756,8 @@ tune_workflows <- rbind(workflow_set(preproc = list(bare_recipe = bare_recipe),
                                      cross = TRUE),
                         workflow_set(preproc = list(dummy_imp = dummy_imp),
                                      models = list(xgboost = boost_tree_tune_spec,  
-                                                    lightGBM = lightGBM_tune_spec,
-                                                    rand_forest = rand_forest_tune_spec),
+                                                   lightGBM = lightGBM_tune_spec,
+                                                   rand_forest = rand_forest_tune_spec),
                                      cross = TRUE),
                         workflow_set(preproc = list(dummy_imp_trans = dummy_imp_trans),
                                      models = list(glmnet = glmnet_tune_spec,
@@ -1024,328 +1871,6 @@ results <-
 map_dfr(results, mae, truth = target, data = results) %>%
     mutate(member = colnames(results)) %>% 
     arrange(.estimate)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# team winner extreme gradient boosting model ----
-# model
-# ctrl <- trainControl(method = "cv", number = 5, verboseIter = F, 
-#                      classProbs = T, summaryFunction = twoClassSummary)
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
-                     classProbs = T)
-# grid <- expand.grid(
-#     nrounds = seq(100, 10000, 100),
-#     eta = c(0.01, 0.015, 0.025, 0.05, 0.1),
-#     max_depth = c(2, 3, 4, 5, 6),
-#     gamma = c(0, 0.05, 0.1, 0.5, 0.7, 0.9, 1.0),
-#     colsample_bytree = c(0.4, 0.6, 0.8, 1.0),
-#     min_child_weight = c(1, 2, 3),
-#     subsample = c(0.5, 0.75, 1.0)
-# )
-xgb_win <- train(team_winner ~., data = train,
-                 method = "xgbTree",
-                 # metric = "ROC",
-                 preProc = c("center", "scale"),
-                 trControl = ctrl,
-                 tuneGrid = grid)
-xgb_tune <- xgb_win
-
-unregister_dopar <- function() {
-    env <- foreach:::.foreachGlobals
-    rm(list=ls(name=env), pos=env)
-}
-
-unregister_dopar()
-
-grid <- expand.grid(
-    nrounds = xgb_tune$bestTune$nrounds,
-    eta = xgb_tune$bestTune$eta,
-    max_depth = xgb_tune$bestTune$max_depth,
-    gamma = xgb_tune$bestTune$gamma,
-    colsample_bytree = xgb_tune$bestTune$colsample_bytree,
-    min_child_weight = xgb_tune$bestTune$min_child_weight,
-    subsample = xgb_tune$bestTune$subsample
-)
-
-grid <- expand.grid(
-    nrounds = 1000,
-    eta = c(0.01, 0.015, 0.025, 0.05, 0.1),
-    lambda = 1,
-    alpha = 0
-)
-xgb_win <- train(team_winner ~., data = train,
-                 method = "xgbLinear",
-                 # metric = "ROC",
-                 preProc = c("center", "scale"),
-                 trControl = ctrl,
-                 tuneGrid = grid)
-xgb_tune <- xgb_win
-
-
-ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 5,
-                     verboseIter = T, classProbs = T, search = "random")
-
-ctrl <- trainControl(method = "adaptive_cv", number = 5, repeats = 5,
-                     verboseIter = T, classProbs = T, search = "random",
-                     adaptive = list(min = 3,     # minimum number of resamples before elimination is possible
-                                     alpha = 0.05,     # confidence level used to eliminate hyperparameter combos
-                                     method = "gls",  
-                                     complete = TRUE))
-set.seed(214)
-xgb_win <- train(team_winner ~., data = train,
-                 method = "xgbTree",
-                 # metric = "ROC",
-                 preProc = c("center", "scale"),
-                 trControl = ctrl,
-                 tuneLength = 15)
-
-getTrainPerf(xgb_win)
-xgb_win
-xgb_win$resample
-xgb_win$results
-summary(xgb_win) # model components
-confusionMatrix(xgb_win) # confusion matrix
-plot(xgb_win) # viz
-
-# predictions
-win_pred <- predict(xgb_win, test, type = "prob")
-confusionMatrix(test$team_winner,
-                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
-                       levels = c("win","loss")),
-                positive = "win")
-
-team_pred <- as.numeric(win_pred[,1])
-opp_pred <- as.numeric(win_pred[,2])
-obs <- test$team_winner
-pred <- factor(ifelse(team_pred > 0.5, "win", "loss"), levels = c("win","loss"))
-obs_pred <- data.frame(obs = obs,
-                       pred = pred,
-                       win = team_pred, 
-                       loss = opp_pred)
-
-# model evaluation
-twoClassSummary(obs_pred, lev = levels(obs)) # roc
-prSummary(obs_pred, lev = levels(obs)) # auc
-mnLogLoss(obs_pred, lev = levels(obs)) # log loss
-
-roc_score <- pROC::roc(test$team_winner, team_pred, plot = T, legacy.axes = T,
-                       percent = T,
-                       xlab="False Positive Percentage",
-                       ylab="True Postive Percentage",
-                       col="#377eb8", lwd = 4, print.auc = T) # roc chart
-
-postResample(pred = pred, obs = obs) # caret eval
-
-# feature importance
-importance <- varImp(xgb_win, scale = F)
-plot(importance)
-
-xgb_win_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
-    arrange(desc(Overall)) %>%
-    head(20)
-xgb_win_imp
-
-
-# team winner boosted generalized linear model ----
-# model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T, 
-                     classProbs = T)
-grid <- expand.grid(
-    mstop = seq(50, 500, 50),
-    prune = c("no")
-)
-set.seed(214)
-glm_win <- train(team_winner ~., data = train,
-                 method = "glmboost",
-                 # metric = "ROC",
-                 preProc = c("center", "scale"),
-                 trControl = ctrl,
-                 tuneGrid = grid)
-
-glm_win
-glm_win$resample
-glm_win$results
-summary(glm_win) # model components
-confusionMatrix(glm_win) # confusion matrix
-plot(glm_win)
-
-# predictions
-win_pred <- predict(glm_win, test, type = "prob")
-confusionMatrix(test$team_winner,
-                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
-                       levels = c("win","loss")),
-                positive = "win")
-
-
-
-# team winner ensemble model ---- 
-# https://www.stepbystepdatascience.com/hyperparameter-tuning-and-model-stacking-with-caret
-# model
-library(caretEnsemble)
-# ensem_control <- trainControl(method = "adaptive_cv", number = 5, repeats = 5,
-#                               verboseIter = T, classProbs = T,
-#                               adaptive = list(min = 5,
-#                                               alpha = 0.05,
-#                                               method = "gls",
-#                                               complete = TRUE),
-#                               search = "random",
-#                               savePredictions = "final") # this is needed so we can ensemble later
-
-ensem_control <- trainControl(method = "cv", number = 5,
-                              verboseIter = T, classProbs = T,
-                              index = createFolds(train$team_winner),
-                              savePredictions = "final") # this is needed so we can ensemble later
-
-glmnet_grid <- expand.grid(
-    alpha = 0, # ridge = 0 / lasso = 1
-    lambda = 10^seq(2, -3, by = -.1)
-)
-nn_grid <- expand.grid(
-    decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5),
-    size = c(1, 3, 5, 7, 9)
-)
-svm_grid <- expand.grid(
-    sigma = c(0.001, 0.005, 0.01, 0.05),
-    C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
-)
-
-set.seed(214)
-all_in_one <- caretList(team_winner ~., data = train,
-                        trControl = ensem_control,
-                        preProc = c("center", "scale"),
-                        tuneList=list(glmnet = caretModelSpec(method = "glmnet",
-                                                              tuneGrid = glmnet_grid),
-                                      nn = caretModelSpec(method = "pcaNNet",
-                                                          tuneGrid = nn_grid,
-                                                          maxit = 1000),
-                                      svm = caretModelSpec(method = "svmRadial",
-                                                           tuneGrid = svm_grid)))
-# Have a look at the models
-rbind(getTrainPerf(all_in_one$"glmnet"),
-      getTrainPerf(all_in_one$"nn"),
-      getTrainPerf(all_in_one$"svm")) %>% 
-    arrange(desc(TrainAccuracy))
-
-# Plot the results
-bwplot(resamples(all_in_one))
-
-# Have a look at the correlation amongst the models
-modelCor(resamples(all_in_one))
-
-# Add on average correlation amongst models
-rbind(as_tibble(modelCor(resamples(all_in_one)), rownames = "models"),
-      summarise_all(as_tibble(modelCor(resamples(all_in_one))), mean) %>% 
-          mutate(models = "average") %>% 
-          select(models, everything()))
-
-# Caret ensemble will ensemble all models in your list
-all_models_ensemble <- caretEnsemble(all_in_one)
-all_models_ensemble # print the performance of the stack
-
-summary(all_models_ensemble) # print a bit more detail
-
-# We can pass a trControl to our caretEnsemble too
-ensembleCtrl <- trainControl(method = "repeatedcv", # what method of resampling we want to use
-                             number = 5, # 10 folds
-                             repeats = 5) # repeated ten times
-
-cv_ensemble <- caretEnsemble(all_in_one, trControl = ensembleCtrl)
-
-summary(cv_ensemble) 
-
-
-# Create the trainControl - don't reuse the one from the model training
-stackControl <- trainControl(method = "adaptive_cv",
-                             number = 10, repeats = 5, classProbs = T,
-                             adaptive = list(min = 5,
-                                             alpha = 0.05,
-                                             method = "gls",
-                                             complete = TRUE),
-                             search = "random",
-                             savePredictions="final") 
-
-# Ensemble the predictions of `models` to form a new combined prediction based on glm
-set.seed(214)
-stack_glmnet <- caretStack(all_in_one,  # caretList
-                           method="glmnet",   # algorithm to try for our super learner
-                           # metric="MAE",
-                           tuneLength = 50,
-                           trControl = stackControl)
-
-stack_glmnet
-
-# Which model performed the best?
-as_tibble(rbind(glmnet = getTrainPerf(all_in_one$"glmnet")$TrainAccuracy,
-                nn = getTrainPerf(all_in_one$"nn")$TrainAccuracy,
-                svm = getTrainPerf(all_in_one$"svm")$TrainAccuracy,            	
-                ensemble = all_models_ensemble$error$Accuracy,
-                glmnet_stack = mean(stack_glmnet$ens_model$resample$Accuracy)),
-          rownames="models") %>% 
-    rename(Accuracy = V1) %>% 
-    arrange(desc(Accuracy))
-
-
-# We'll use the best performing model to score up our Test set
-final_model <- stack_glmnet
-
-
-win_pred <- predict(all_in_one$svm, test, type = "prob")
-
-team_pred <- as.numeric(win_pred[,1])
-opp_pred <- as.numeric(win_pred[,2])
-obs <- test$team_winner
-pred <- factor(ifelse(team_pred > 0.5, "win", "loss"), levels = c("win","loss"))
-
-# Compare performance on the Test set vs the resamples
-tibble(train = mean(all_in_one$svm$resample$Accuracy), 
-       test = postResample(pred = pred, obs = obs)["Accuracy"]) %>%
-    mutate(difference = train-test)
-
-
-
-
-
-
 
 
 
