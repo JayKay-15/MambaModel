@@ -1,4 +1,4 @@
-### model tuning ----
+### model training ----
 
 library(tidyverse)
 library(RSQLite) # db
@@ -6,6 +6,7 @@ library(DBI) # db
 library(caret) # model training
 library(tidymodels) # model eval
 library(ggfortify) # autoplot
+library(doParallel) # parallel
 
 # library(MLeval) # model eval
 # library(pROC) # model eval
@@ -29,50 +30,40 @@ options(scipen = 999999)
 # https://www.kaggle.com/code/pelkoja/visual-xgboost-tuning-with-caret/report
 
 # pull all historical data
-nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_wide_odds") %>%
+nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_long_odds") %>%
     collect() %>%
+    filter(season_year >= 2020) %>%
     rename(team_winner = wl,
-           team_score = away_pts,
-           opp_score = home_pts) %>%
+           team_score = pts,
+           opp_score = opp_pts) %>%
     mutate(game_date = as_date(game_date, origin ="1970-01-01"),
            team_winner = if_else(team_winner == "W", "win", "loss"),
            team_winner = factor(team_winner, levels = c("win", "loss")),
            location = factor(location, levels = c("away", "home")))
 
+# saveRDS(nba_final, "../MambaModel/backest_output/nba_final_w10.rds")
+# saveRDS(model_outputs, "../MambaModel/backest_output/model_outputs.rds")
 
-# nba_final <- read_rds("../NBAdb/mamba_stats_w5.rds")
-# nba_final <- read_rds("../NBAdb/mamba_stats_w10.rds")
-# nba_final <- read_rds("../NBAdb/mamba_stats_w15.rds")
-# nba_final <- read_rds("../NBAdb/mamba_stats_w20.rds")
+# nba_final <- read_rds("../NBAdb/models/nba_final_full_15.rds")
+# model_outputs <- read_rds("../MambaModel/backest_output/model_outputs.rds")
 
-# saveRDS(model_outputs, "./backest_output/model_outputs_w5.rds")
-# saveRDS(model_outputs, "./backest_output/model_outputs_w10.rds")
-# saveRDS(model_outputs, "./backest_output/model_outputs_w15.rds")
-# saveRDS(model_outputs, "./backest_output/model_outputs_w20.rds")
-
-# model_outputs <- read_rds("./backest_output/model_outputs_w15.rds")
-
-nba_final <- nba_final %>%
-    filter(season_year >= 2019) %>%
-    mutate(game_date = as_date(game_date, origin ="1970-01-01"),
-           team_winner = factor(team_winner, levels = c("win", "loss")))
-
-# starter_fic <- read_csv("/Users/jesse/Desktop/starter_fic.csv")
-# nba_final_fic <- nba_final %>%
-#     left_join(starter_fic)
-# 
-# saveRDS(nba_final_fic, "/Users/jesse/Desktop/nba_final_fic.rds")
-
-nba_final_fic <- read_rds("/Users/jesse/Desktop/nba_final_fic.rds")
-nba_final <- nba_final_fic
+# nba_final <- nba_final %>%
+#     filter(season_year >= 2020) %>%
+#     rename(team_winner = wl,
+#            team_score = pts,
+#            opp_score = opp_pts) %>%
+#     mutate(game_date = as_date(game_date, origin ="1970-01-01"),
+#            team_winner = if_else(team_winner == "W", "win", "loss"),
+#            team_winner = factor(team_winner, levels = c("win", "loss")),
+#            location = factor(location, levels = c("away", "home")))
 
 # correlations ----
 set.seed(214)
 
 # feature correlations
 cor_df <- nba_final %>%
-    select(away_is_b2b_first:home_is_b2b_second, over_under, away_implied_prob,
-           away_fgm:home_opp_pct_uast_fgm) %>%
+    select(is_b2b_first:opp_is_b2b_second, over_under, team_implied_prob,
+           team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 # check for extreme correlation
@@ -95,8 +86,8 @@ summary(cor_mx_new[upper.tri(cor_mx_new)])
 
 # correlations - win
 model_win_all <- nba_final %>%
-    select(team_winner, away_is_b2b_first:home_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
+    select(team_winner, is_b2b_first:opp_is_b2b_second, over_under,
+           team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating")) %>%
     mutate(team_winner = if_else(team_winner == "win", 1, 0))
 
@@ -118,8 +109,8 @@ cor_mx
 
 # correlations - team score
 model_ts_all <- nba_final %>%
-    select(team_score, away_is_b2b_first:home_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
+    select(team_score, is_b2b_first:opp_is_b2b_second, over_under,
+           team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 # near zero variables
@@ -140,8 +131,8 @@ cor_mx
 
 # correlations - opp score
 model_os_all <- nba_final %>%
-    select(opp_score, away_is_b2b_first:home_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
+    select(opp_score, is_b2b_first:opp_is_b2b_second, over_under,
+           team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 # near zero variables
@@ -166,31 +157,31 @@ rm(list=ls()[! ls() %in% c("nba_final", "cor_cols")])
 # team winner models ----
 # all features
 train <- nba_final %>%
-    filter(season_year <= 2021) %>%
-    select(team_winner, away_is_b2b_first:home_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
+    filter(season_year <= 2022) %>%
+    select(team_winner, location, is_b2b_first:opp_is_b2b_second, over_under,
+           team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 test <- nba_final %>%
-    filter(season_year > 2021) %>%
-    select(team_winner, away_is_b2b_first:home_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
+    filter(season_year > 2022) %>%
+    select(team_winner, location, is_b2b_first:opp_is_b2b_second, over_under,
+           team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 model_outputs <- nba_final %>%
-    filter(season_year > 2021) %>%
-    select(season_year:home_implied_prob)
+    filter(season_year > 2022) %>%
+    select(season_year:opp_implied_prob)
 
 # highly correlated features removed
 train <- train %>% select(-all_of(cor_cols))
 test <- test %>% select(-all_of(cor_cols))
 
 # normalize features
-pre_proc_val <- preProcess(train[,-c(1:5)], method = c("center", "scale"))
+pre_proc_val <- preProcess(train[,-c(1:6)], method = c("center", "scale"))
 
-train[,-c(1:5)] = predict(pre_proc_val, train[,-c(1:5)])
-test[,-c(1:5)] = predict(pre_proc_val, test[,-c(1:5)])
- 
+train[,-c(1:6)] = predict(pre_proc_val, train[,-c(1:6)])
+test[,-c(1:6)] = predict(pre_proc_val, test[,-c(1:6)])
+
 
 # team winner logistic regression model ----
 # model
@@ -203,14 +194,15 @@ log_win <- train(team_winner ~., data = train,
                  metric = "ROC",
                  family = "binomial")
 
-saveRDS(log_win, "../NBAdb/models/models_trained/log_win_2021.rds")
+# saveRDS(log_win, "../NBAdb/models/models_trained/log_win_2020_2022.rds")
+log_win <- read_rds("../NBAdb/models/models_trained/log_win_2020_2022.rds")
 
 # predictions
 win_pred <- predict(log_win, test, type = "prob")
 
 model_outputs <- model_outputs %>%
-    mutate(log_win_away = as.numeric(win_pred[,1]),
-           log_win_home = as.numeric(win_pred[,2]))
+    mutate(log_win_team = as.numeric(win_pred[,1]),
+           log_win_opp = as.numeric(win_pred[,2]))
 
 
 # team winner ridge regression model ----
@@ -227,14 +219,15 @@ reg_win <- train(team_winner ~., data = train,
                  trControl = ctrl,
                  tuneGrid = grid)
 
-saveRDS(reg_win, "../NBAdb/models/models_trained/reg_win_2021.rds")
+# saveRDS(reg_win, "../NBAdb/models/models_trained/reg_win_2020_2022.rds")
+reg_win <- read_rds("../NBAdb/models/models_trained/reg_win_2020_2022.rds")
 
 # predictions
 win_pred <- predict(reg_win, test, type = "prob")
 
 model_outputs <- model_outputs %>%
-    mutate(reg_win_away = as.numeric(win_pred[,1]),
-           reg_win_home = as.numeric(win_pred[,2]))
+    mutate(reg_win_team = as.numeric(win_pred[,1]),
+           reg_win_opp = as.numeric(win_pred[,2]))
 
 
 # team winner knn model ----
@@ -250,14 +243,15 @@ knn_win <- train(team_winner ~., data = train,
                  trControl = ctrl,
                  tuneGrid = grid)
 
-saveRDS(knn_win, "../NBAdb/models/models_trained/knn_win_2021.rds")
+# saveRDS(knn_win, "../NBAdb/models/models_trained/knn_win_2020_2022.rds")
+knn_win <- read_rds("../NBAdb/models/models_trained/knn_win_2020_2022.rds")
 
 # predictions
 win_pred <- predict(knn_win, test, type = "prob")
 
 model_outputs <- model_outputs %>%
-    mutate(knn_win_away = as.numeric(win_pred[,1]),
-           knn_win_home = as.numeric(win_pred[,2]))
+    mutate(knn_win_team = as.numeric(win_pred[,1]),
+           knn_win_opp = as.numeric(win_pred[,2]))
 
 
 # team winner random forest model ----
@@ -275,14 +269,15 @@ rf_win <- train(team_winner ~., data = train,
                 trControl = ctrl,
                 tuneGrid = grid)
 
-saveRDS(rf_win, "../NBAdb/models/models_trained/rf_win_2021.rds")
+# saveRDS(rf_win, "../NBAdb/models/models_trained/rf_win_2020_2022.rds")
+rf_win <- read_rds("../NBAdb/models/models_trained/rf_win_2020_2022.rds")
 
 # predictions
 win_pred <- predict(rf_win, test, type = "prob")
 
 model_outputs <- model_outputs %>%
-    mutate(rf_win_away = as.numeric(win_pred[,1]),
-           rf_win_home = as.numeric(win_pred[,2]))
+    mutate(rf_win_team = as.numeric(win_pred[,1]),
+           rf_win_opp = as.numeric(win_pred[,2]))
 
 
 # team winner support vector machines model ----
@@ -299,14 +294,15 @@ svm_win <- train(team_winner ~., data = train,
                  trControl = ctrl,
                  tuneGrid = grid)
 
-saveRDS(svm_win, "../NBAdb/models/models_trained/svm_win_2021.rds")
+# saveRDS(svm_win, "../NBAdb/models/models_trained/svm_win_2020_2022.rds")
+svm_win <- read_rds("../NBAdb/models/models_trained/svm_win_2020_2022.rds")
 
 # predictions
 win_pred <- predict(svm_win, test, type = "prob")
 
 model_outputs <- model_outputs %>%
-    mutate(svm_win_away = as.numeric(win_pred[,1]),
-           svm_win_home = as.numeric(win_pred[,2]))
+    mutate(svm_win_team = as.numeric(win_pred[,1]),
+           svm_win_opp = as.numeric(win_pred[,2]))
 
 # team winner neural net model ----
 # model
@@ -322,14 +318,15 @@ nn_win <- train(team_winner ~., data = train,
                 trControl = ctrl,
                 tuneGrid = grid)
 
-saveRDS(nn_win, "../NBAdb/models/models_trained/nn_win_2021.rds")
+# saveRDS(nn_win, "../NBAdb/models/models_trained/nn_win_2020_2022.rds")
+nn_win <- read_rds("../NBAdb/models/models_trained/nn_win_2020_2022.rds")
 
 # predictions
 win_pred <- predict(nn_win, test, type = "prob")
 
 model_outputs <- model_outputs %>%
-    mutate(nn_win_away = as.numeric(win_pred[,1]),
-           nn_win_home = as.numeric(win_pred[,2]))
+    mutate(nn_win_team = as.numeric(win_pred[,1]),
+           nn_win_opp = as.numeric(win_pred[,2]))
 
 # team winner extreme gradient boosting model ----
 # model
@@ -351,32 +348,33 @@ xgb_win <- train(team_winner ~., data = train,
                  tuneGrid = grid)
 xgb_tune <- xgb_win
 
-saveRDS(xgb_win, "../NBAdb/models/models_trained/xgb_win_2021.rds")
+# saveRDS(xgb_win, "../NBAdb/models/models_trained/xgb_win_2020_2022.rds")
+xgb_win <- read_rds("../NBAdb/models/models_trained/xgb_win_2020_2022.rds")
 
 # predictions
 win_pred <- predict(xgb_win, test, type = "prob")
 
 model_outputs <- model_outputs %>%
-    mutate(xgb_win_away = as.numeric(win_pred[,1]),
-           xgb_win_home = as.numeric(win_pred[,2]))
+    mutate(xgb_win_team = as.numeric(win_pred[,1]),
+           xgb_win_opp = as.numeric(win_pred[,2]))
 
 
 # team score models ----
 # all features
 train <- nba_final %>%
-    filter(season_year <= 2021) %>%
-    select(team_score, is_b2b_first:opp_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
+    filter(season_year <= 2022) %>%
+    select(team_score, location, is_b2b_first:opp_is_b2b_second, over_under,
+           team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 test <- nba_final %>%
-    filter(season_year > 2021) %>%
-    select(team_score, is_b2b_first:opp_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
+    filter(season_year > 2022) %>%
+    select(team_score, location, is_b2b_first:opp_is_b2b_second, over_under,
+           team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 # model_outputs <- nba_final %>%
-#     filter(season_year > 2021) %>%
+#     filter(season_year > 2022) %>%
 #     select(season_year:home_implied_prob)
 
 # highly correlated features removed
@@ -384,10 +382,10 @@ train <- train %>% select(-all_of(cor_cols))
 test <- test %>% select(-all_of(cor_cols))
 
 # normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
+pre_proc_val <- preProcess(train[,-c(1:6)], method = c("center", "scale"))
 
-train[,-c(1:5)] = predict(pre_proc_val, train[,-c(1:5)])
-test[,-c(1:5)] = predict(pre_proc_val, test[,-c(1:5)])
+train[,-c(1:6)] = predict(pre_proc_val, train[,-c(1:6)])
+test[,-c(1:6)] = predict(pre_proc_val, test[,-c(1:6)])
 
 
 # team score linear regression model ----
@@ -397,7 +395,8 @@ lin_team <- train(team_score ~., data = train,
                   trControl = ctrl,
                   method = "lm")
 
-saveRDS(lin_team, "../NBAdb/models/models_trained/lin_team_2021.rds")
+# saveRDS(lin_team, "../NBAdb/models/models_trained/lin_team_2020_2022.rds")
+lin_team <- read_rds("../NBAdb/models/models_trained/lin_team_2020_2022.rds")
 
 # predictions
 team_pred <- predict(lin_team, test)
@@ -417,7 +416,8 @@ reg_team <- train(team_score ~., data = train,
                   trControl = ctrl,
                   tuneGrid = grid)
 
-saveRDS(reg_team, "../NBAdb/models/models_trained/reg_team_2021.rds")
+# saveRDS(reg_team, "../NBAdb/models/models_trained/reg_team_2020_2022.rds")
+reg_team <- read_rds("../NBAdb/models/models_trained/reg_team_2020_2022.rds")
 
 # predictions
 team_pred <- predict(reg_team, test)
@@ -436,7 +436,8 @@ knn_team <- train(team_score ~., data = train,
                   trControl = ctrl,
                   tuneGrid = grid)
 
-saveRDS(knn_team, "../NBAdb/models/models_trained/knn_team_2021.rds")
+# saveRDS(knn_team, "../NBAdb/models/models_trained/knn_team_2020_2022.rds")
+knn_team <- read_rds("../NBAdb/models/models_trained/knn_team_2020_2022.rds")
 
 # predictions
 team_pred <- predict(knn_team, test)
@@ -457,7 +458,9 @@ rf_team <- train(team_score ~., data = train,
                  trControl = ctrl,
                  tuneGrid = grid)
 
-saveRDS(rf_team, "../NBAdb/models/models_trained/rf_team_2021.rds")
+# saveRDS(rf_team, "../NBAdb/models/models_trained/rf_team_2020_2022.rds")
+rf_team <- read_rds("../NBAdb/models/models_trained/rf_team_2020_2022.rds")
+
 
 # predictions
 team_pred <- predict(rf_team, test)
@@ -469,15 +472,26 @@ model_outputs <- model_outputs %>%
 # model
 ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
 grid <- expand.grid(
-    sigma = c(0.005, 0.01, 0.05),
-    C = c(0.25, 0.5)
+    sigma = c(0.001),
+    C = c(0.95)
 )
 svm_team <- train(team_score ~., data = train,
                   method = "svmRadial",
+                  preProc = c("center", "scale"),
                   trControl = ctrl,
                   tuneGrid = grid)
 
-saveRDS(svm_team, "../NBAdb/models/models_trained/svm_team_2021.rds")
+grid <- expand.grid(
+    C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
+)
+svm_team <- train(team_score ~., data = train,
+                  method = "svmLinear",
+                  preProc = c("center", "scale"),
+                  trControl = ctrl,
+                  tuneGrid = grid)
+
+# saveRDS(svm_team, "../NBAdb/models/models_trained/svm_team_2020_2022.rds")
+svm_team <- read_rds("../NBAdb/models/models_trained/svm_team_2020_2022.rds")
 
 # predictions
 team_pred <- predict(svm_team, test)
@@ -498,7 +512,9 @@ nn_team <- train(team_score ~., data = train,
                  tuneGrid = grid,
                  linout = 1)
 
-saveRDS(nn_team, "../NBAdb/models/models_trained/nn_team_2021.rds")
+# saveRDS(nn_team, "../NBAdb/models/models_trained/nn_team_2020_2022.rds")
+nn_team <- read_rds("../NBAdb/models/models_trained/nn_team_2020_2022.rds")
+
 
 # predictions
 team_pred <- predict(nn_team, test)
@@ -524,7 +540,8 @@ xgb_team <- train(team_score ~., data = train,
                   tuneGrid = grid)
 xgb_tune <- xgb_team
 
-saveRDS(xgb_team, "../NBAdb/models/models_trained/xgb_team_2021.rds")
+# saveRDS(xgb_team, "../NBAdb/models/models_trained/xgb_team_2020_2022.rds")
+xgb_team <- read_rds("../NBAdb/models/models_trained/xgb_team_2020_2022.rds")
 
 # predictions
 team_pred <- predict(xgb_team, test)
@@ -535,19 +552,19 @@ model_outputs <- model_outputs %>%
 # opp score models ----
 # all features
 train <- nba_final %>%
-    filter(season_year <= 2021) %>%
-    select(opp_score, is_b2b_first:opp_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
+    filter(season_year <= 2022) %>%
+    select(opp_score, location, is_b2b_first:opp_is_b2b_second, over_under,
+           team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 test <- nba_final %>%
-    filter(season_year > 2021) %>%
-    select(opp_score, is_b2b_first:opp_is_b2b_second, over_under,
-           away_implied_prob, away_fgm:home_opp_pct_uast_fgm) %>%
+    filter(season_year > 2022) %>%
+    select(opp_score, location, is_b2b_first:opp_is_b2b_second, over_under,
+           team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
     select(-contains("_rating"))
 
 # model_outputs <- nba_final %>%
-#     filter(season_year > 2021) %>%
+#     filter(season_year > 2022) %>%
 #     select(season_year:home_implied_prob)
 
 # highly correlated features removed
@@ -555,11 +572,10 @@ train <- train %>% select(-all_of(cor_cols))
 test <- test %>% select(-all_of(cor_cols))
 
 # normalize features
-pre_proc_val <- preProcess(train[,-1], method = c("center", "scale"))
+pre_proc_val <- preProcess(train[,-c(1:6)], method = c("center", "scale"))
 
-train[,-c(1:5)] = predict(pre_proc_val, train[,-c(1:5)])
-test[,-c(1:5)] = predict(pre_proc_val, test[,-c(1:5)])
-
+train[,-c(1:6)] = predict(pre_proc_val, train[,-c(1:6)])
+test[,-c(1:6)] = predict(pre_proc_val, test[,-c(1:6)])
 
 # opp score linear regression model ----
 # model
@@ -568,7 +584,9 @@ lin_opp <- train(opp_score ~., data = train,
                  trControl = ctrl,
                  method = "lm")
 
-saveRDS(lin_opp, "../NBAdb/models/models_trained/lin_opp_2021.rds")
+# saveRDS(lin_opp, "../NBAdb/models/models_trained/lin_opp_2020_2022.rds")
+lin_opp <- read_rds("../NBAdb/models/models_trained/lin_opp_2020_2022.rds")
+
 
 # predictions
 opp_pred <- predict(lin_opp, test)
@@ -588,7 +606,9 @@ reg_opp <- train(opp_score ~., data = train,
                  trControl = ctrl,
                  tuneGrid = grid)
 
-saveRDS(reg_opp, "../NBAdb/models/models_trained/reg_opp_2021.rds")
+# saveRDS(reg_opp, "../NBAdb/models/models_trained/reg_opp_2020_2022.rds")
+reg_opp <- read_rds("../NBAdb/models/models_trained/reg_opp_2020_2022.rds")
+
 
 # predictions
 opp_pred <- predict(reg_opp, test)
@@ -607,7 +627,9 @@ knn_opp <- train(opp_score ~., data = train,
                  trControl = ctrl,
                  tuneGrid = grid)
 
-saveRDS(knn_opp, "../NBAdb/models/models_trained/knn_opp_2021.rds")
+# saveRDS(knn_opp, "../NBAdb/models/models_trained/knn_opp_2020_2022.rds")
+knn_opp <- read_rds("../NBAdb/models/models_trained/knn_opp_2020_2022.rds")
+
 
 # predictions
 opp_pred <- predict(knn_opp, test)
@@ -628,7 +650,9 @@ rf_opp <- train(opp_score ~., data = train,
                 trControl = ctrl,
                 tuneGrid = grid)
 
-saveRDS(rf_opp, "../NBAdb/models/models_trained/rf_opp_2021.rds")
+# saveRDS(rf_opp, "../NBAdb/models/models_trained/rf_opp_2020_2022.rds")
+rf_opp <- read_rds("../NBAdb/models/models_trained/rf_opp_2020_2022.rds")
+
 
 # predictions
 opp_pred <- predict(rf_opp, test)
@@ -648,7 +672,9 @@ svm_opp <- train(opp_score ~., data = train,
                  trControl = ctrl,
                  tuneGrid = grid)
 
-saveRDS(svm_opp, "../NBAdb/models/models_trained/svm_opp_2021.rds")
+# saveRDS(svm_opp, "../NBAdb/models/models_trained/svm_opp_2020_2022.rds")
+svm_opp <- read_rds("../NBAdb/models/models_trained/svm_opp_2020_2022.rds")
+
 
 # predictions
 opp_pred <- predict(svm_opp, test)
@@ -669,7 +695,9 @@ nn_opp <- train(opp_score ~., data = train,
                 tuneGrid = grid,
                 linout = 1)
 
-saveRDS(nn_opp, "../NBAdb/models/models_trained/nn_opp_2021.rds")
+# saveRDS(nn_opp, "../NBAdb/models/models_trained/nn_opp_2020_2022.rds")
+nn_opp <- read_rds("../NBAdb/models/models_trained/nn_opp_2020_2022.rds")
+
 
 # predictions
 opp_pred <- predict(nn_opp, test)
@@ -695,7 +723,8 @@ xgb_opp <- train(opp_score ~., data = train,
                  tuneGrid = grid)
 xgb_tune <- xgb_opp
 
-saveRDS(xgb_opp, "../NBAdb/models/models_trained/xgb_opp_2021.rds")
+# saveRDS(xgb_opp, "../NBAdb/models/models_trained/xgb_opp_2020_2022.rds")
+xgb_opp <- read_rds("../NBAdb/models/models_trained/xgb_opp_2020_2022.rds")
 
 # predictions
 opp_pred <- predict(xgb_opp, test)
@@ -704,7 +733,10 @@ model_outputs <- model_outputs %>%
 
 # pre-processed stats ----
 saveRDS(pre_proc_val,
-        "../NBAdb/models/models_trained/pre_proc_val_2019_2021.rds")
+        "../NBAdb/models/models_trained/pre_proc_val_2020_2022.rds")
+
+pre_proc_val <-
+    read_rds("../NBAdb/models/models_trained/pre_proc_val_2020_2022.rds")
 
 
 
