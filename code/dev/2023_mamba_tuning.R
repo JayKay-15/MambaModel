@@ -7,7 +7,7 @@ library(caret) # model training
 library(tidymodels) # model eval
 library(ggfortify) # autoplot
 library(doParallel) # parallel
-library(tictoc)
+library(tictoc) # timer
 
 # library(MLeval) # model eval
 # library(pROC) # model eval
@@ -57,13 +57,13 @@ nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_long_odds")
     )
 
 nba_final_train <- nba_final %>%
-  filter(season_year <= 2023) %>%
+  filter(season_year < 2024) %>%
   select(team_winner, team_score, location, is_b2b_first:opp_is_b2b_second, over_under,
          team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
   select(-contains("_rating"))
 
 nba_final_test <- nba_final %>%
-  filter(season_year > 2023) %>%
+  filter(season_year == 2024) %>%
   select(team_winner, team_score, location, is_b2b_first:opp_is_b2b_second, over_under,
          team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
   select(-contains("_rating"))
@@ -87,7 +87,7 @@ nba_final_test <- nba_final %>%
 # correlations ----
 set.seed(214)
 cor_index <- createDataPartition(nba_final_train$team_winner,
-                                 p = .2, list = FALSE)
+                                 p = .1, list = FALSE)
 
 nba_cor <- nba_final_train[cor_index,]
 nba_final_train <- nba_final_train[-cor_index,]
@@ -294,10 +294,6 @@ grid <- expand.grid(
     alpha = 0, # ridge = 0 / lasso = 1
     lambda = 10^seq(2, -3, by = -.1)
 )
-grid <- expand.grid(
-  alpha = seq(0, 1, 0.1),
-  lambda = seq(0, 5, 0.01)
-)
 set.seed(214)
 reg_win <- train(team_winner ~., data = train,
                  method = "glmnet",
@@ -364,7 +360,7 @@ reg_win_imp
 ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
                      verboseIter = T, classProbs = T)
 grid <- expand.grid(
-    k = seq(5, 125, 5)
+    k = seq(5, 50, 5)
 )
 set.seed(214)
 knn_win <- train(team_winner ~., data = train, 
@@ -432,7 +428,7 @@ rf_win <- train(team_winner ~., data = train,
                 # metric = "ROC",
                 preProc = c("center", "scale"),
                 trControl = ctrl,
-                tuneGrid = grid) # mtry = 7
+                tuneGrid = grid)
 
 getTrainPerf(rf_win)
 rf_win
@@ -459,6 +455,7 @@ obs_pred <- data.frame(obs = obs,
                        loss = opp_pred)
 
 # model evaluation
+postResample(pred = pred, obs = obs) # accuracy
 twoClassSummary(obs_pred, lev = levels(obs)) # roc
 prSummary(obs_pred, lev = levels(obs)) # auc
 mnLogLoss(obs_pred, lev = levels(obs)) # log loss
@@ -478,14 +475,14 @@ rf_win_metrics <- postResample(pred = pred, obs = obs)[1]
 # ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
 #                      verboseIter = T, classProbs = T,
 #                      summaryFunction = twoClassSummary)
-# ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
-#                      verboseIter = T, classProbs = T)
-ctrl <- trainControl(method = "adaptive_cv", number = 5, repeats = 3,
-                     verboseIter = T, classProbs = T,
-                     adaptive = list(min = 3,
-                                     alpha = 0.05,
-                                     method = "gls",
-                                     complete = TRUE))
+ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
+                     verboseIter = T, classProbs = T)
+# ctrl <- trainControl(method = "adaptive_cv", number = 5, repeats = 3,
+#                      verboseIter = T, classProbs = T,
+#                      adaptive = list(min = 3,
+#                                      alpha = 0.05,
+#                                      method = "gls",
+#                                      complete = TRUE))
 grid <- expand.grid(
     sigma = c(0.001, 0.005, 0.01, 0.05),
     C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
@@ -775,27 +772,27 @@ ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
 #                                      method = "gls",
 #                                      complete = TRUE))
 grid <- expand.grid(
-  mstop = seq(50, 500, 50),
+  mstop = seq(50, 1000, 50),
   prune = c("no")
 )
 set.seed(214)
-glm_win <- train(team_winner ~., data = train,
+glmboost_win <- train(team_winner ~., data = train,
                  method = "glmboost",
                  # metric = "ROC",
                  preProc = c("center", "scale"),
                  trControl = ctrl,
                  tuneGrid = grid)
 
-getTrainPerf(glm_win)
-glm_win
-glm_win$resample
-glm_win$results
-summary(glm_win) # model components
-confusionMatrix(glm_win) # confusion matrix
-plot(glm_win)
+getTrainPerf(glmboost_win)
+glmboost_win
+glmboost_win$resample
+glmboost_win$results
+summary(glmboost_win) # model components
+confusionMatrix(glmboost_win) # confusion matrix
+plot(glmboost_win)
 
 # predictions
-win_pred <- predict(glm_win, test, type = "prob")
+win_pred <- predict(glmboost_win, test, type = "prob")
 confusionMatrix(test$team_winner,
                 factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
                        levels = c("win","loss")),
@@ -824,13 +821,13 @@ roc_score <- pROC::roc(test$team_winner, team_pred, plot = T, legacy.axes = T,
 postResample(pred = pred, obs = obs) # caret eval
 
 # feature importance
-importance <- varImp(glm_win, scale = F)
+importance <- varImp(glmboost_win, scale = F)
 plot(importance)
 
-glm_win_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
+glmboost_win_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
   arrange(desc(Overall)) %>%
   head(20)
-glm_win_imp
+glmboost_win_imp
 
 
 # team winner earth model ----
@@ -847,8 +844,8 @@ ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
 #                                      method = "gls",
 #                                      complete = TRUE))
 grid <- expand.grid(
-  nprune = c(3),
-  degree = c(4)
+  nprune = seq(5, 50, 5),
+  degree = c(1:4)
 )
 set.seed(214)
 mars_win <- train(team_winner ~., data = train,
@@ -905,53 +902,54 @@ mars_win_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
 mars_win_imp
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # team winner ensemble model ----
 # https://www.stepbystepdatascience.com/hyperparameter-tuning-and-model-stacking-with-caret
 # model
 library(caretEnsemble)
-ensem_control <- trainControl(method = "adaptive_cv", number = 5, repeats = 5,
+ensem_control <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
                               verboseIter = T, classProbs = T,
-                              adaptive = list(min = 5,
-                                              alpha = 0.05,
-                                              method = "gls",
-                                              complete = TRUE),
-                              search = "random",
-                              savePredictions = "final") # this is needed so we can ensemble later
+                              savePredictions = "final")
+
+glmnet_grid <- expand.grid(
+  alpha = 0, # ridge = 0 / lasso = 1
+  lambda = 10^seq(2, -3, by = -.1)
+)
+rf_grid <- expand.grid(
+  .mtry = 1:7,
+  .splitrule = "gini",
+  .min.node.size = 1
+)
+glmboost_grid <- expand.grid(
+  mstop = seq(50, 500, 50),
+  prune = c("no")
+)
+earth_grid <- expand.grid(
+  nprune = c(1:5),
+  degree = c(1:5)
+)
 set.seed(214)
 all_in_one <- caretList(team_winner ~., data = train,
                         trControl = ensem_control,
                         preProc = c("center", "scale"),
-                        tuneList=list(glmnet = caretModelSpec(method = "glmnet",
-                                                              tuneLength = 15),
-                                      nn = caretModelSpec(method = "pcaNNet",
-                                                          tuneLength = 15,
-                                                          maxit = 1000),
-                                      svm = caretModelSpec(method = "svmRadial",
-                                                           tuneLength = 15)))
+                        tuneList=list(lm = caretModelSpec(method = "glm",
+                                                          family = "binomial"),
+                                      glmnet = caretModelSpec(method = "glmnet",
+                                                              tuneGrid = glmnet_grid),
+                                      rf = caretModelSpec(method = "ranger",
+                                                          tuneGrid = rf_grid),
+                                      glmboost = caretModelSpec(method = "glmboost",
+                                                           tuneGrid = glmboost_grid),
+                                      mars = caretModelSpec(method = "earth",
+                                                            tuneGrid = earth_grid)
+                        )
+)
+
 # Have a look at the models
-rbind(getTrainPerf(all_in_one$"glmnet"),
-      getTrainPerf(all_in_one$"nn"),
-      getTrainPerf(all_in_one$"svm")) %>% 
+rbind(getTrainPerf(all_in_one$"lm"),
+      getTrainPerf(all_in_one$"glmnet"),
+      getTrainPerf(all_in_one$"rf"),
+      getTrainPerf(all_in_one$"glmboost"),
+      getTrainPerf(all_in_one$"mars")) %>% 
     arrange(desc(TrainAccuracy))
 
 # Plot the results
@@ -973,15 +971,53 @@ all_models_ensemble # print the performance of the stack
 summary(all_models_ensemble) # print a bit more detail
 
 # We can pass a trControl to our caretEnsemble too
-ensembleCtrl <- trainControl(method = "repeatedcv", # what method of resampling we want to use
-                             number = 5, # 10 folds
-                             repeats = 5) # repeated ten times
+ensembleCtrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3)
 
-cv_ensemble <- caretEnsemble(all_in_one, trControl=ensembleCtrl)
+cv_ensemble <- caretEnsemble(all_in_one, trControl = ensembleCtrl)
 
 summary(cv_ensemble) 
 
 
+# Create the trainControl - don't reuse the one from the model training
+stackControl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
+                             verboseIter = T, classProbs = T,
+                             savePredictions = "final")
+
+set.seed(214)
+stack_glmboost <- caretStack(all_in_one,
+                             method = "glmboost",
+                             tuneLength = 50,
+                             trControl = stackControl)
+
+set.seed(214)
+stack_mars <- caretStack(all_in_one,
+                         method = "earth",
+                         tuneLength = 50,
+                         trControl = stackControl)
+
+# Which model performed the best?
+as_tibble(rbind(lm = getTrainPerf(all_in_one$"lm")$TrainAccuracy,
+                glmnet = getTrainPerf(all_in_one$"glmnet")$TrainAccuracy,
+                rf = getTrainPerf(all_in_one$"rf")$TrainAccuracy,
+                glmboost = getTrainPerf(all_in_one$"glmboost")$TrainAccuracy,
+                mars = getTrainPerf(all_in_one$"mars")$TrainAccuracy,
+                stack_glm = mean(stack_glmboost$error$Accuracy),
+                stack_mars = mean(stack_mars$error$Accuracy)),
+          rownames="models") %>%
+  rename(accuracy = V1) %>%
+  arrange(desc(accuracy))
+
+
+# predictions
+win_pred <- predict(all_in_one$"glm", test, type = "prob")
+confusionMatrix(test$team_winner,
+                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
+                       levels = c("win","loss")),
+                positive = "win")
+# confusionMatrix(test$team_winner,
+#                 factor(ifelse(win_pred > 0.5, "win", "loss"), 
+#                        levels = c("win","loss")),
+#                 positive = "win")
 
 # team score models ----
 # all features
