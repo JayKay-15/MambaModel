@@ -243,6 +243,9 @@ glance(log_win$finalModel) # entire model - tidymodels
 tidy(log_win$finalModel) # model components - tidymodels
 augment(log_win$finalModel) # observations - tidymodels
 
+saveRDS(log_win, "../NBAdb/models/trained_models/log_win_20_23.rds")
+log_win <- read_rds("../NBAdb/models/trained_models/log_win_20_23.rds")
+
 # predictions
 win_pred <- predict(log_win, test, type = "prob")
 confusionMatrix(test$team_winner,
@@ -311,6 +314,9 @@ confusionMatrix(reg_win) # confusion matrix
 glance(reg_win$finalModel) # entire model - tidymodels
 tidy(reg_win$finalModel) # model components - tidymodels
 plot(reg_win) # viz
+
+saveRDS(reg_win, "../NBAdb/models/trained_models/reg_win_20_23.rds")
+reg_win <- read_rds("../NBAdb/models/trained_models/reg_win_20_23.rds")
 
 # predictions
 win_pred <- predict(reg_win, test, type = "prob")
@@ -418,9 +424,9 @@ knn_win_metrics <- postResample(pred = pred, obs = obs)[1]
 ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
                      verboseIter = T, classProbs = T)
 grid <- expand.grid(
-    .mtry = 1:7,
+    .mtry = 1:8,
     .splitrule = "gini",
-    .min.node.size = 1
+    .min.node.size = 1:3
 )
 set.seed(214)
 rf_win <- train(team_winner ~., data = train,
@@ -437,6 +443,9 @@ rf_win$results
 summary(rf_win) # model components
 confusionMatrix(rf_win) # confusion matrix
 plot(rf_win) # viz
+
+saveRDS(rf_win, "../NBAdb/models/trained_models/rf_win_20_23.rds")
+rf_win <- read_rds("../NBAdb/models/trained_models/rf_win_20_23.rds")
 
 # predictions
 win_pred <- predict(rf_win, test, type = "prob")
@@ -493,31 +502,31 @@ svm_win <- train(team_winner ~., data = train,
                  # metric = "ROC",
                  preProc = c("center", "scale", "YeoJohnson"),
                  trControl = ctrl,
-                 tuneGrid = grid) # sigma = 0.005 and C = 0.5
+                 tuneGrid = grid)
 
-grid <- expand.grid(
-    C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
-)
-set.seed(214)
-svm_win <- train(team_winner ~., data = train,
-                 method = "svmLinear",
-                 # metric = "ROC",
-                 preProc = c("center", "scale", "YeoJohnson"),
-                 trControl = ctrl,
-                 tuneGrid = grid) # C = 0.5
-
-grid <- expand.grid(
-  degree = c(1, 2, 3),
-  scale = c(0.001, 0.01, 0.1, 1),
-  C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
-)
-set.seed(214)
-svm_win <- train(team_winner ~., data = train,
-                 method = "svmPoly",
-                 # metric = "ROC",
-                 preProc = c("center", "scale", "YeoJohnson"),
-                 trControl = ctrl,
-                 tuneLength = 25)
+# grid <- expand.grid(
+#     C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
+# )
+# set.seed(214)
+# svm_win <- train(team_winner ~., data = train,
+#                  method = "svmLinear",
+#                  # metric = "ROC",
+#                  preProc = c("center", "scale", "YeoJohnson"),
+#                  trControl = ctrl,
+#                  tuneGrid = grid)
+#
+# grid <- expand.grid(
+#   degree = c(1, 2, 3),
+#   scale = c(0.001, 0.01, 0.1, 1),
+#   C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
+# )
+# set.seed(214)
+# svm_win <- train(team_winner ~., data = train,
+#                  method = "svmPoly",
+#                  # metric = "ROC",
+#                  preProc = c("center", "scale", "YeoJohnson"),
+#                  trControl = ctrl,
+#                  tuneLength = 25)
 
 getTrainPerf(svm_win)
 svm_win
@@ -526,6 +535,9 @@ svm_win$results
 summary(svm_win) # model components
 confusionMatrix(svm_win) # confusion matrix
 plot(svm_win) # viz
+
+saveRDS(svm_win, "../NBAdb/models/trained_models/svm_win_20_23.rds")
+svm_win <- read_rds("../NBAdb/models/trained_models/svm_win_20_23.rds")
 
 # predictions
 win_pred <- predict(svm_win, test, type = "prob")
@@ -572,8 +584,8 @@ ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
 #                                      method = "gls",
 #                                      complete = TRUE))
 grid <- expand.grid(
-    decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5),
-    size = c(1, 3, 5, 7, 9)
+  decay = c(0.95, 0.75, 0.5, 0.1, 1e-2, 1e-3),
+  size = c(1, 3, 5)
 )
 set.seed(214)
 nn_win <- train(team_winner ~., data = train,
@@ -582,34 +594,49 @@ nn_win <- train(team_winner ~., data = train,
                 preProc = c("center", "scale", "YeoJohnson"),
                 trControl = ctrl,
                 tuneGrid = grid,
-                maxit = 1000) # size = 1 and decay = 0.1
-
-grid <- expand.grid(
-    decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5),
-    size = c(1, 3, 5, 7, 9),
-    bag = FALSE
-)
-set.seed(214)
-nn_win <- train(team_winner ~., data = train,
-                method = "avNNet",
-                # metric = "ROC",
-                preProc = c("center", "scale", "YeoJohnson"),
-                trControl = ctrl,
-                tuneGrid = grid,
                 maxit = 1000)
 
-grid <- expand.grid(
-    decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5),
-    size = c(1, 3, 5, 7, 9)
-)
-set.seed(214)
-nn_win <- train(team_winner ~., data = train,
-                method = "pcaNNet",
-                # metric = "ROC",
-                preProc = c("center", "scale", "YeoJohnson"),
-                trControl = ctrl,
-                tuneGrid = grid,
-                maxit = 1000) # size = 1 and decay = 0.75
+# grid <- expand.grid(
+#   decay = c(0.95, 0.75, 0.5, 0.1, 1e-2, 1e-3),
+#   size = c(1, 2, 3, 4),
+#   bag = c(FALSE)
+# )
+# set.seed(214)
+# nn_win <- train(team_winner ~., data = train,
+#                 method = "avNNet",
+#                 # metric = "ROC",
+#                 preProc = c("center", "scale", "YeoJohnson"),
+#                 trControl = ctrl,
+#                 tuneGrid = grid,
+#                 maxit = 1000)
+# 
+# grid <- expand.grid(
+#   decay = c(0.95, 0.75, 0.5, 0.1, 1e-2, 1e-3),
+#   size = c(1, 2, 3, 4)
+# )
+# set.seed(214)
+# nn_win <- train(team_winner ~., data = train,
+#                 method = "pcaNNet",
+#                 # metric = "ROC",
+#                 preProc = c("center", "scale", "YeoJohnson"),
+#                 trControl = ctrl,
+#                 tuneGrid = grid,
+#                 maxit = 1000)
+# 
+# grid <- expand.grid(
+#   # decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3),
+#   layer1 = 2:4,
+#   layer2 = 2:4,
+#   layer3 = 2:4
+# )
+# set.seed(214)
+# nn_win <- train(team_winner ~., data = train,
+#                 method = "mlpML", # mlpML # mlpWeightDecayML
+#                 # metric = "ROC",
+#                 preProc = c("center", "scale", "YeoJohnson"),
+#                 trControl = ctrl,
+#                 tuneGrid = grid,
+#                 maxit = 1000)
 
 getTrainPerf(nn_win)
 nn_win
@@ -618,6 +645,9 @@ nn_win$results
 summary(nn_win) # model components
 confusionMatrix(nn_win) # confusion matrix
 plot(nn_win) # viz
+
+saveRDS(nn_win, "../NBAdb/models/trained_models/nn_win_20_23.rds")
+nn_win <- read_rds("../NBAdb/models/trained_models/nn_win_20_23.rds")
 
 # predictions
 win_pred <- predict(nn_win, test, type = "prob")
@@ -685,6 +715,16 @@ ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
 #   min_child_weight = c(1),
 #   subsample = c(1)
 # )
+
+grid <- expand.grid(
+  nrounds = seq(800, 1500, 100),
+  eta = c(0.001, 0.005),
+  max_depth = c(2),
+  gamma = c(0),
+  colsample_bytree = c(1),
+  min_child_weight = c(2),
+  subsample = c(1)
+)
 tic()
 set.seed(214)
 xgb_win <- train(team_winner ~., data = train,
@@ -695,21 +735,21 @@ xgb_win <- train(team_winner ~., data = train,
                  tuneGrid = grid)
 toc()
 
-grid <- expand.grid(
-    nrounds = c(100),
-    eta = c(0.001),
-    alpha = c(100),
-    lambda = c(3)
-)
-tic()
-set.seed(214)
-xgb_win <- train(team_winner ~., data = train,
-                 method = "xgbLinear",
-                 # metric = "ROC",
-                 preProc = c("center", "scale", "YeoJohnson"),
-                 trControl = ctrl,
-                 tuneGrid = grid)
-toc()
+# grid <- expand.grid(
+#     nrounds = seq(100, 300, 100),
+#     eta = c(0.1),
+#     alpha = seq(30, 70, 5),
+#     lambda = c(1)
+# )
+# tic()
+# set.seed(214)
+# xgb_win <- train(team_winner ~., data = train,
+#                  method = "xgbLinear",
+#                  # metric = "ROC",
+#                  preProc = c("center", "scale", "YeoJohnson"),
+#                  trControl = ctrl,
+#                  tuneGrid = grid)
+# toc()
 
 getTrainPerf(xgb_win)
 xgb_win
@@ -718,6 +758,9 @@ xgb_win$results
 summary(xgb_win) # model components
 confusionMatrix(xgb_win) # confusion matrix
 plot(xgb_win) # viz
+
+saveRDS(xgb_win, "../NBAdb/models/trained_models/xgb_win_20_23.rds")
+xgb_win <- read_rds("../NBAdb/models/trained_models/xgb_win_20_23.rds")
 
 # predictions
 win_pred <- predict(xgb_win, test, type = "prob")
@@ -772,27 +815,30 @@ ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
 #                                      method = "gls",
 #                                      complete = TRUE))
 grid <- expand.grid(
-  mstop = seq(50, 1000, 50),
+  mstop = seq(100, 1000, 50),
   prune = c("no")
 )
 set.seed(214)
-glmboost_win <- train(team_winner ~., data = train,
+glmb_win <- train(team_winner ~., data = train,
                  method = "glmboost",
                  # metric = "ROC",
                  preProc = c("center", "scale"),
                  trControl = ctrl,
                  tuneGrid = grid)
 
-getTrainPerf(glmboost_win)
-glmboost_win
-glmboost_win$resample
-glmboost_win$results
-summary(glmboost_win) # model components
-confusionMatrix(glmboost_win) # confusion matrix
-plot(glmboost_win)
+getTrainPerf(glmb_win)
+glmb_win
+glmb_win$resample
+glmb_win$results
+summary(glmb_win) # model components
+confusionMatrix(glmb_win) # confusion matrix
+plot(glmb_win)
+
+saveRDS(glmb_win, "../NBAdb/models/trained_models/glmb_win_20_23.rds")
+glmb_win <- read_rds("../NBAdb/models/trained_models/glmb_win_20_23.rds")
 
 # predictions
-win_pred <- predict(glmboost_win, test, type = "prob")
+win_pred <- predict(glmb_win, test, type = "prob")
 confusionMatrix(test$team_winner,
                 factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
                        levels = c("win","loss")),
@@ -824,10 +870,10 @@ postResample(pred = pred, obs = obs) # caret eval
 importance <- varImp(glmboost_win, scale = F)
 plot(importance)
 
-glmboost_win_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
+glmb_win_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
   arrange(desc(Overall)) %>%
   head(20)
-glmboost_win_imp
+glmb_win_imp
 
 
 # team winner earth model ----
@@ -862,6 +908,9 @@ mars_win$results
 summary(mars_win) # model components
 confusionMatrix(mars_win) # confusion matrix
 plot(mars_win)
+
+saveRDS(mars_win, "../NBAdb/models/trained_models/mars_win_20_23.rds")
+mars_win <- read_rds("../NBAdb/models/trained_models/mars_win_20_23.rds")
 
 # predictions
 win_pred <- predict(mars_win, test, type = "prob")
@@ -1046,12 +1095,6 @@ test <- nba_final_test %>%
   select(-team_winner, -all_of(cor_cols)) %>%
   mutate(across(location:opp_is_b2b_second, factor))
 
-# # normalize features
-# pre_proc_val <- preProcess(train[,-c(1:6)], method = c("center", "scale"))
-# 
-# train[,-c(1:6)] = predict(pre_proc_val, train[,-c(1:6)])
-# test[,-c(1:6)] = predict(pre_proc_val, test[,-c(1:6)])
-
 
 # team score linear regression model ----
 # model
@@ -1073,6 +1116,9 @@ autoplot(lin_team$finalModel) # viz - ggfortify
 glance(lin_team$finalModel) # entire model - tidymodels
 tidy(lin_team$finalModel) # model components - tidymodels
 augment(lin_team$finalModel) # observations - tidymodels
+
+saveRDS(lin_team, "../NBAdb/models/trained_models/lin_team_20_23.rds")
+lin_team <- read_rds("../NBAdb/models/trained_models/lin_team_20_23.rds")
 
 # predictions
 team_pred <- predict(lin_team, test)
@@ -1097,7 +1143,7 @@ lin_team_imp
 ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
                      verboseIter = T)
 grid <- expand.grid(
-    alpha = seq(0, 1, 0.1), 
+    alpha = 0, 
     lambda = 10^seq(2, -3, by = -.1)
 )
 set.seed(214)
@@ -1117,6 +1163,9 @@ autoplot(reg_team$finalModel) # viz - ggfortify
 glance(reg_team$finalModel) # entire model - tidymodels
 tidy(reg_team$finalModel) # model components - tidymodels
 plot(reg_team) # viz
+
+saveRDS(reg_team, "../NBAdb/models/trained_models/reg_team_20_23.rds")
+reg_team <- read_rds("../NBAdb/models/trained_models/reg_team_20_23.rds")
 
 # predictions
 team_pred <- predict(reg_team, test)
@@ -1168,11 +1217,13 @@ knn_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 # team score random forest model ----
 # model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+# ctrl <- trainControl(method = "cv", number = 5, verboseIter = F)
+ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
+                     verboseIter = T)
 grid <- expand.grid(
     .mtry = seq(2, 24, 2),
     .splitrule = "variance",
-    .min.node.size = 1
+    .min.node.size = 1:3
 )
 set.seed(214)
 rf_team <- train(team_score ~., data = train,
@@ -1182,21 +1233,14 @@ rf_team <- train(team_score ~., data = train,
                  trControl = ctrl,
                  tuneGrid = grid)
 
-grid <- expand.grid(
-    .mtry = seq(2, 24, 2)
-)
-set.seed(214)
-rf_team <- train(team_score ~., data = train,
-                 method = "rf",
-                 metric = "MAE",
-                 preProc = c("center", "scale"),
-                 trControl = ctrl,
-                 tuneGrid = grid)
-
+getTrainPerf(rf_team)
 rf_team
 rf_team$resample
 rf_team$results
 plot(rf_team) # viz
+
+saveRDS(rf_team, "../NBAdb/models/trained_models/rf_team_20_23.rds")
+rf_team <- read_rds("../NBAdb/models/trained_models/rf_team_20_23.rds")
 
 # predictions
 team_pred <- predict(rf_team, test)
@@ -1208,16 +1252,18 @@ rf_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 # team score support vector machines model ----
 # model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+# ctrl <- trainControl(method = "cv", number = 5, verboseIter = F)
+ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
+                     verboseIter = T)
 grid <- expand.grid(
-    sigma = c(0.0005, 0.001, 0.005, 0.01),
+    sigma = c(0.001, 0.005, 0.01, 0.05, 0.1),
     C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
 )
 set.seed(214)
 svm_team <- train(team_score ~., data = train,
                   method = "svmRadial",
                   metric = "MAE",
-                  preProc = c("center", "scale"),
+                  preProc = c("center", "scale", "YeoJohnson"),
                   trControl = ctrl,
                   tuneGrid = grid)
 
@@ -1228,15 +1274,19 @@ set.seed(214)
 svm_team <- train(team_score ~., data = train,
                   method = "svmLinear",
                   metric = "MAE",
-                  preProc = c("center", "scale"),
+                  preProc = c("center", "scale", "YeoJohnson"),
                   trControl = ctrl,
                   tuneGrid = grid)
 
+getTrainPerf(svm_team)
 svm_team
 svm_team$resample
 svm_team$results
 summary(svm_team) # model components
 plot(svm_team) # viz
+
+saveRDS(svm_team, "../NBAdb/models/trained_models/svm_team_20_23.rds")
+svm_team <- read_rds("../NBAdb/models/trained_models/svm_team_20_23.rds")
 
 # predictions
 team_pred <- predict(svm_team, test)
@@ -1248,57 +1298,61 @@ svm_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 # team score neural net model ----
 # model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+# ctrl <- trainControl(method = "cv", number = 5, verboseIter = F)
+ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
+                     verboseIter = T)
+# grid <- expand.grid(
+#     decay = c(0.75, 0.5, 0.25, 0.1, 1e-2),
+#     size = c(1, 2, 3, 4)
+# )
+# set.seed(214)
+# nn_team <- train(team_score ~., data = train,
+#                  method = "nnet",
+#                  metric = "MAE",
+#                  preProc = c("center", "scale", "YeoJohnson"),
+#                  trControl = ctrl,
+#                  tuneGrid = grid,
+#                  maxit = 1000,
+#                  linout = 1)
+# 
+# grid <- expand.grid(
+#     decay = c(0.75, 0.5, 0.25, 0.1, 1e-2),
+#     size = c(1, 2, 3, 4),
+#     bag = c(FALSE, TRUE)
+# )
+# set.seed(214)
+# nn_team <- train(team_score ~., data = train,
+#                 method = "avNNet",
+#                 metric = "MAE",
+#                 preProc = c("center", "scale", "YeoJohnson"),
+#                 trControl = ctrl,
+#                 tuneGrid = grid,
+#                 maxit = 1000,
+#                 linout = 1)
+
 grid <- expand.grid(
-    decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7),
-    size = c(1, 3, 5, 7, 9)
+  decay = c(0.75, 0.5, 0.25, 0.1, 1e-2),
+  size = c(1, 2, 3, 4)
 )
+set.seed(214)
 nn_team <- train(team_score ~., data = train,
-                 method = "nnet",
-                 metric = "MAE",
-                 preProc = c("center", "scale"),
-                 trControl = ctrl,
-                 tuneGrid = grid,
-                 linout = 1)
-
-nn_team <- train(team_score ~., data = train,
-                 method = "nnet",
-                 # algorithm = "backprop",
-                 metric = "MAE",
-                 preProc = c("center", "scale"),
-                 trControl = ctrl,
-                 tuneLength = 5,
-                 maxit = 1000,
-                 linout = 1)
-
-grid <- expand.grid(
-    decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5),
-    size = c(1, 3, 5, 7, 9),
-    bag = FALSE
-)
-nn_win <- train(team_score ~., data = train,
-                method = "avNNet",
-                metric = "MAE",
-                preProc = c("center", "scale"),
-                trControl = ctrl,
-                tuneLength = 5)
-
-grid <- expand.grid(
-    decay = c(0.75, 0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5),
-    size = c(1, 3, 5, 7, 9)
-)
-nn_win <- train(team_score ~., data = train,
                 method = "pcaNNet",
                 metric = "MAE",
-                preProc = c("center", "scale"),
+                preProc = c("center", "scale", "YeoJohnson"),
                 trControl = ctrl,
-                tuneLength = 5)
+                tuneGrid = grid,
+                maxit = 1000,
+                linout = 1)
 
+getTrainPerf(nn_team)
 nn_team
 nn_team$resample
 nn_team$results
 summary(nn_team) # model components
 plot(nn_team) # viz
+
+saveRDS(nn_team, "../NBAdb/models/trained_models/nn_team_20_23.rds")
+nn_team <- read_rds("../NBAdb/models/trained_models/nn_team_20_23.rds")
 
 # predictions
 team_pred <- predict(nn_team, test)
@@ -1319,29 +1373,34 @@ nn_team_imp
 
 # team score extreme gradient boosting model ----
 # model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = F)
+# ctrl <- trainControl(method = "cv", number = 5, verboseIter = F)
+ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
+                     verboseIter = T)
 grid <- expand.grid(
-    nrounds = xgb_tune$bestTune$nrounds,
-    eta = xgb_tune$bestTune$eta,
-    max_depth = xgb_tune$bestTune$max_depth,
-    gamma = xgb_tune$bestTune$gamma,
-    colsample_bytree = xgb_tune$bestTune$colsample_bytree,
-    min_child_weight = xgb_tune$bestTune$min_child_weight,
-    subsample = xgb_tune$bestTune$subsample
+  nrounds = seq(200, 500, 100),
+  eta = c(0.1),
+  max_depth = c(1),
+  gamma = c(0),
+  colsample_bytree = c(0.65),
+  min_child_weight = c(9),
+  subsample = c(0.8)
 )
-
+set.seed(214)
 xgb_team <- train(team_score ~., data = train,
                   method = "xgbTree",
                   preProc = c("center", "scale"),
                   trControl = ctrl,
                   tuneGrid = grid)
-xgb_tune <- xgb_team
 
+getTrainPerf(xgb_team)
 xgb_team
 xgb_team$resample
 xgb_team$results
 summary(xgb_team) # model components
 plot(xgb_team) # viz
+
+saveRDS(xgb_team, "../NBAdb/models/trained_models/xgb_team_20_23.rds")
+xgb_team <- read_rds("../NBAdb/models/trained_models/xgb_team_20_23.rds")
 
 # predictions
 team_pred <- predict(xgb_team, test)
@@ -1362,60 +1421,98 @@ xgb_team_imp
 
 # team score glm boost model ----
 # model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+# ctrl <- trainControl(method = "cv", number = 5, verboseIter = F)
+ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
+                     verboseIter = T)
 grid <- expand.grid(
     mstop = seq(50, 500, 50),
-    prune = c("yes", "yes")
+    prune = c("yes", "no")
 )
 set.seed(214)
-glm_team <- train(team_score ~., data = train,
+glmb_team <- train(team_score ~., data = train,
                   method = "glmboost",
                   metric = "MAE",
                   preProc = c("center", "scale"),
                   trControl = ctrl,
                   tuneGrid = grid)
 
-glm_team
-glm_team$resample
-glm_team$results
-summary(glm_team) # model components
-plot(glm_team) # viz
+getTrainPerf(glmb_team)
+glmb_team
+glmb_team$resample
+glmb_team$results
+summary(glmb_team) # model components
+plot(glmb_team) # viz
+
+saveRDS(glmb_team, "../NBAdb/models/trained_models/glmb_team_20_23.rds")
+glmb_team <- read_rds("../NBAdb/models/trained_models/glmb_team_20_23.rds")
 
 # predictions
-team_pred <- predict(glm_team, test)
+team_pred <- predict(glmb_team, test)
 
 # model evaluation
 postResample(pred = team_pred, obs = test$team_score) # caret eval
-glm_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
+glmb_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 
-# team score gam boost model ----
+# team score earth model ----
 # model
-ctrl <- trainControl(method = "cv", number = 5, verboseIter = T)
+# ctrl <- trainControl(method = "cv", number = 5, verboseIter = F)
+ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
+                     verboseIter = T)
 grid <- expand.grid(
-    mstop = seq(50, 500, 50),
-    prune = c("yes", "no")
+  nprune = seq(5, 50, 5),
+  degree = c(1:4)
 )
 set.seed(214)
-gam_team <- train(team_score ~., data = train,
-                 method = "gamboost",
+mars_team <- train(team_score ~., data = train,
+                 method = "earth",
                  metric = "MAE",
                  preProc = c("center", "scale"),
                  trControl = ctrl,
                  tuneGrid = grid)
 
-gam_team
-gam_team$resample
-gam_team$results
-summary(gam_team) # model components
-plot(gam_team) # viz
+getTrainPerf(mars_team)
+mars_team
+mars_team$resample
+mars_team$results
+summary(mars_team) # model components
+plot(mars_team) # viz
+
+saveRDS(mars_team, "../NBAdb/models/trained_models/mars_team_20_23.rds")
+mars_team <- read_rds("../NBAdb/models/trained_models/mars_team_20_23.rds")
 
 # predictions
-team_pred <- predict(gam_team, test)
+team_pred <- predict(mars_team, test)
 
 # model evaluation
 postResample(pred = team_pred, obs = test$team_score) # caret eval
-gam_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
+mars_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
