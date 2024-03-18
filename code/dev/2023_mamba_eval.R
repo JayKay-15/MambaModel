@@ -5,41 +5,47 @@ library(RSQLite) # db
 library(DBI) # db
 library(caret) # model training
 library(tidymodels) # model eval
-library(ggfortify) # autoplot
-library(doParallel) # parallel
-
-# library(MLeval) # model eval
-# library(pROC) # model eval
-
-# library(glmnet) # regularization
-# library(ranger) # rf
-# library(xgboost) # xgb
-# library(e1071) # svm
-# library(nnet) # nn
-
-# library(nbastatR)
-# library(caTools)
-
-# library(mctest) # correlations
-# library(corrplot) # correlations
-# library(corrgram) # correlations
 
 options(scipen = 999999)
 # Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2)
 
+nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_long_odds") %>%
+    collect() %>%
+    filter(season_year >= 2020) %>%
+    rename(team_winner = wl,
+           team_score = pts,
+           opp_score = opp_pts) %>%
+    mutate(
+        game_date = as_date(game_date, origin ="1970-01-01"),
+        team_winner = if_else(team_winner == "W", "win", "loss"),
+        team_winner = factor(team_winner, levels = c("win", "loss"))
+    )
 
+nba_final_df <- nba_final %>%
+    filter(season_year == 2024) %>%
+    select(season_year:opp_implied_prob)
 
+nba_final_test <- read_rds("../NBAdb/models/trained_models/nba_final_test.rds")
+# cor_cols <- read_rds("../NBAdb/models/trained_models/cor_cols.rds")
 
+test <- nba_final_test %>%
+    select(-team_score) %>%
+    mutate(across(location:opp_is_b2b_second, factor))
+
+model_outputs <- nba_final_df
 
 # team winner models ----
 
 # team winner logistic regression model ----
-
-# saveRDS(log_win, "../NBAdb/models/models_trained/log_win_2020_2022.rds")
-log_win <- read_rds("../NBAdb/models/models_trained/log_win_2020_2022.rds")
+log_win <- read_rds("../NBAdb/models/trained_models/log_win_20_23.rds")
 
 # predictions
 win_pred <- predict(log_win, test, type = "prob")
+
+confusionMatrix(test$team_winner,
+                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
+                       levels = c("win","loss")),
+                positive = "win")
 
 model_outputs <- model_outputs %>%
     mutate(log_win_team = as.numeric(win_pred[,1]),
