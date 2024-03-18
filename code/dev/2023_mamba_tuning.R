@@ -42,37 +42,9 @@ options(scipen = 999999)
 
 # https://www.kaggle.com/code/pelkoja/visual-xgboost-tuning-with-caret/report
 
-# pull all historical data
-nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_long_odds") %>%
-    collect() %>%
-    filter(season_year >= 2020) %>%
-    rename(team_winner = wl,
-           team_score = pts,
-           opp_score = opp_pts) %>%
-    mutate(
-        game_date = as_date(game_date, origin ="1970-01-01"),
-        team_winner = if_else(team_winner == "W", "win", "loss"),
-        team_winner = factor(team_winner, levels = c("win", "loss")),
-        location = if_else(location == "away", 1, 0)
-    )
-
-nba_final_train <- nba_final %>%
-  filter(season_year < 2024) %>%
-  select(team_winner, team_score, location, is_b2b_first:opp_is_b2b_second, over_under,
-         team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
-  select(-contains("_rating"))
-
-nba_final_test <- nba_final %>%
-  filter(season_year == 2024) %>%
-  select(team_winner, team_score, location, is_b2b_first:opp_is_b2b_second, over_under,
-         team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
-  select(-contains("_rating"))
-
-# nba_final <- read_rds("../MambaModel/pace_adj_10.rds")
-# nba_final <- read_rds("../NBAdb/models/nba_final_full_10.rds")
-# model_outputs <- read_rds("./backest_output/model_outputs_w15.rds")
-
-# nba_final <- nba_final %>%
+# # pull all historical data
+# nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_long_odds") %>%
+#     collect() %>%
 #     filter(season_year >= 2020) %>%
 #     rename(team_winner = wl,
 #            team_score = pts,
@@ -83,6 +55,50 @@ nba_final_test <- nba_final %>%
 #         team_winner = factor(team_winner, levels = c("win", "loss")),
 #         location = if_else(location == "away", 1, 0)
 #     )
+# 
+# nba_final_train <- nba_final %>%
+#   filter(season_year < 2024) %>%
+#   select(team_winner, team_score, location, is_b2b_first:opp_is_b2b_second, over_under,
+#          team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
+#   select(-contains("_rating"))
+# 
+# nba_final_test <- nba_final %>%
+#   filter(season_year == 2024) %>%
+#   select(team_winner, team_score, location, is_b2b_first:opp_is_b2b_second, over_under,
+#          team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
+#   select(-contains("_rating"))
+
+# pull all historical data
+nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_long_odds") %>%
+  collect() %>%
+  filter(season_year >= 2020 & location == "away") %>%
+  rename(team_winner = wl,
+         team_score = pts,
+         opp_score = opp_pts) %>%
+  mutate(
+    game_date = as_date(game_date, origin ="1970-01-01"),
+    team_winner = if_else(team_winner == "W", "win", "loss"),
+    team_winner = factor(team_winner, levels = c("win", "loss"))
+  )
+
+nba_final_train <- nba_final %>%
+  filter(season_year < 2024) %>%
+  select(team_winner, team_score, is_b2b_first:opp_is_b2b_second, over_under,
+         team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
+  select(-contains("_rating"))
+
+nba_final_test <- nba_final %>%
+  filter(season_year == 2024) %>%
+  select(team_winner, team_score, is_b2b_first:opp_is_b2b_second, over_under,
+         team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
+  select(-contains("_rating"))
+
+# saveRDS(nba_final_test, "../NBAdb/models/trained_models/nba_final_test.rds")
+# saveRDS(cor_cols, "../NBAdb/models/trained_models/cor_cols.rds")
+
+# nba_final <- read_rds("../MambaModel/pace_adj_10.rds")
+# nba_final <- read_rds("../NBAdb/models/nba_final_full_10.rds")
+# model_outputs <- read_rds("./backest_output/model_outputs_w15.rds")
 
 # correlations ----
 set.seed(214)
@@ -105,7 +121,7 @@ extreme_cor
 summary(cor_mx[upper.tri(cor_mx)])
 
 # find highly correlated features
-cor_cols <- findCorrelation(cor_mx, cutoff = .5, exact = F, names = T)
+cor_cols <- findCorrelation(cor_mx, cutoff = .4, exact = F, names = T)
 cor_cols
 
 # filter highly correlated features
@@ -201,14 +217,23 @@ rm(list=ls()[! ls() %in% c("nba_final", "cor_cols", "cl",
 #            team_implied_prob, team_fgm:opp_opp_pct_uast_fgm) %>%
 #     select(-contains("_rating"))
 
+# # highly correlated features removed
+# train <- nba_final_train %>%
+#     select(-team_score, -all_of(cor_cols)) %>%
+#     mutate(across(location:opp_is_b2b_second, factor))
+# 
+# test <- nba_final_test %>%
+#     select(-team_score, -all_of(cor_cols)) %>%
+#     mutate(across(location:opp_is_b2b_second, factor))
+
 # highly correlated features removed
 train <- nba_final_train %>%
-    select(-team_score, -all_of(cor_cols)) %>%
-    mutate(across(location:opp_is_b2b_second, factor))
+  select(-team_score, -all_of(cor_cols)) %>%
+  mutate(across(is_b2b_first:opp_is_b2b_second, factor))
 
 test <- nba_final_test %>%
-    select(-team_score, -all_of(cor_cols)) %>%
-    mutate(across(location:opp_is_b2b_second, factor))
+  select(-team_score, -all_of(cor_cols)) %>%
+  mutate(across(is_b2b_first:opp_is_b2b_second, factor))
 
 # # normalize features
 # pre_proc_val <- preProcess(train[,-c(1:6)], method = c("center", "scale"))
