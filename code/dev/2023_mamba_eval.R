@@ -18,23 +18,42 @@ nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_long_odds")
     mutate(
         game_date = as_date(game_date, origin ="1970-01-01"),
         team_winner = if_else(team_winner == "W", "win", "loss"),
-        team_winner = factor(team_winner, levels = c("win", "loss"))
+        team_winner = factor(team_winner, levels = c("win", "loss")),
+        location = if_else(location == "away", 1, 0)
     )
 
-nba_final_df <- nba_final %>%
+nba_final_win_outputs <- nba_final %>%
+    filter(season_year == 2024 & location == 1) %>%
+    select(season_year:opp_implied_prob) %>%
+    mutate(location = if_else(location == 1, "away", "home"))
+
+nba_final_ts_outputs <- nba_final %>%
     filter(season_year == 2024) %>%
-    select(season_year:opp_implied_prob)
+    select(season_year:opp_implied_prob) %>%
+    mutate(location = if_else(location == 1, "away", "home"))
 
-nba_final_test <- read_rds("../NBAdb/models/trained_models/nba_final_test.rds")
-# cor_cols <- read_rds("../NBAdb/models/trained_models/cor_cols.rds")
+nba_final_full <- nba_final %>%
+    filter(season_year == 2024) %>%
+    select(season_year:opp_implied_prob) %>%
+    mutate(location = if_else(location == 1, "away", "home"))
 
-test <- nba_final_test %>%
-    select(-team_score) %>%
-    mutate(across(location:opp_is_b2b_second, factor))
-
-model_outputs <- nba_final_df
 
 # team winner models ----
+nba_final_test <- nba_final %>%
+    filter(season_year == 2024 & location == 1) %>%
+    select(team_winner,
+           is_b2b_first:opp_is_b2b_second, over_under, team_implied_prob,
+           team_fgm:opp_opp_pct_uast_fgm) %>%
+    select(-contains("_rating"))
+
+cor_cols <- read_rds("../NBAdb/models/trained_models/cor_cols_win.rds")
+pre_proc_cs_win <- read_rds("../NBAdb/models/trained_models/pre_proc_cs_win.rds")
+
+test <- nba_final_test %>%
+    select(-all_of(cor_cols)) %>%
+    mutate(across(is_b2b_first:opp_is_b2b_second, factor))
+
+test[,-1] <- predict(pre_proc_cs_win, test[,-1])
 
 # team winner logistic regression model ----
 log_win <- read_rds("../NBAdb/models/trained_models/log_win_20_23.rds")
@@ -47,287 +66,327 @@ confusionMatrix(test$team_winner,
                        levels = c("win","loss")),
                 positive = "win")
 
-model_outputs <- model_outputs %>%
+nba_final_win_outputs <- nba_final_win_outputs %>%
     mutate(log_win_team = as.numeric(win_pred[,1]),
            log_win_opp = as.numeric(win_pred[,2]))
 
 
 # team winner ridge regression model ----
-
-# saveRDS(reg_win, "../NBAdb/models/models_trained/reg_win_2020_2022.rds")
-reg_win <- read_rds("../NBAdb/models/models_trained/reg_win_2020_2022.rds")
+reg_win <- read_rds("../NBAdb/models/trained_models/reg_win_20_23.rds")
 
 # predictions
 win_pred <- predict(reg_win, test, type = "prob")
+confusionMatrix(test$team_winner,
+                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
+                       levels = c("win","loss")),
+                positive = "win")
 
-model_outputs <- model_outputs %>%
+nba_final_win_outputs <- nba_final_win_outputs %>%
     mutate(reg_win_team = as.numeric(win_pred[,1]),
            reg_win_opp = as.numeric(win_pred[,2]))
 
 
-# team winner knn model ----
-
-# saveRDS(knn_win, "../NBAdb/models/models_trained/knn_win_2020_2022.rds")
-knn_win <- read_rds("../NBAdb/models/models_trained/knn_win_2020_2022.rds")
-
-# predictions
-win_pred <- predict(knn_win, test, type = "prob")
-
-model_outputs <- model_outputs %>%
-    mutate(knn_win_team = as.numeric(win_pred[,1]),
-           knn_win_opp = as.numeric(win_pred[,2]))
-
-
 # team winner random forest model ----
-
-# saveRDS(rf_win, "../NBAdb/models/models_trained/rf_win_2020_2022.rds")
-rf_win <- read_rds("../NBAdb/models/models_trained/rf_win_2020_2022.rds")
+rf_win <- read_rds("../NBAdb/models/trained_models/rf_win_20_23.rds")
 
 # predictions
 win_pred <- predict(rf_win, test, type = "prob")
+confusionMatrix(test$team_winner,
+                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
+                       levels = c("win","loss")),
+                positive = "win")
 
-model_outputs <- model_outputs %>%
+nba_final_win_outputs <- nba_final_win_outputs %>%
     mutate(rf_win_team = as.numeric(win_pred[,1]),
            rf_win_opp = as.numeric(win_pred[,2]))
 
+# team winner extreme gradient boosting model ----
+xgb_win <- read_rds("../NBAdb/models/trained_models/xgb_win_20_23.rds")
+
+# predictions
+win_pred <- predict(xgb_win, test, type = "prob")
+confusionMatrix(test$team_winner,
+                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
+                       levels = c("win","loss")),
+                positive = "win")
+
+nba_final_win_outputs <- nba_final_win_outputs %>%
+    mutate(xgb_win_team = as.numeric(win_pred[,1]),
+           xgb_win_opp = as.numeric(win_pred[,2]))
+
+# team winner boosted generalized linear model ----
+glmb_win <- read_rds("../NBAdb/models/trained_models/glmb_win_20_23.rds")
+
+# predictions
+win_pred <- predict(glmb_win, test, type = "prob")
+confusionMatrix(test$team_winner,
+                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
+                       levels = c("win","loss")),
+                positive = "win")
+
+nba_final_win_outputs <- nba_final_win_outputs %>%
+    mutate(glmb_win_team = as.numeric(win_pred[,1]),
+           glmb_win_opp = as.numeric(win_pred[,2]))
+
+# team winner earth model ----
+mars_win <- read_rds("../NBAdb/models/trained_models/mars_win_20_23.rds")
+
+# predictions
+win_pred <- predict(mars_win, test, type = "prob")
+confusionMatrix(test$team_winner,
+                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
+                       levels = c("win","loss")),
+                positive = "win")
+
+nba_final_win_outputs <- nba_final_win_outputs %>%
+    mutate(mars_win_team = as.numeric(win_pred[,1]),
+           mars_win_opp = as.numeric(win_pred[,2]))
+
+# Yeo Johnson pre-processed
+pre_proc_yj_win <- read_rds("../NBAdb/models/trained_models/pre_proc_yj_win.rds")
+
+test <- nba_final_test %>%
+    select(-all_of(cor_cols)) %>%
+    mutate(across(is_b2b_first:opp_is_b2b_second, factor))
+
+test[,-1] <- predict(pre_proc_yj_win, test[,-1])
 
 # team winner support vector machines model ----
-
-# saveRDS(svm_win, "../NBAdb/models/models_trained/svm_win_2020_2022.rds")
-svm_win <- read_rds("../NBAdb/models/models_trained/svm_win_2020_2022.rds")
+svm_win <- read_rds("../NBAdb/models/trained_models/svm_win_20_23.rds")
 
 # predictions
 win_pred <- predict(svm_win, test, type = "prob")
+confusionMatrix(test$team_winner,
+                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
+                       levels = c("win","loss")),
+                positive = "win")
 
-model_outputs <- model_outputs %>%
+nba_final_win_outputs <- nba_final_win_outputs %>%
     mutate(svm_win_team = as.numeric(win_pred[,1]),
            svm_win_opp = as.numeric(win_pred[,2]))
 
 # team winner neural net model ----
-
-# saveRDS(nn_win, "../NBAdb/models/models_trained/nn_win_2020_2022.rds")
-nn_win <- read_rds("../NBAdb/models/models_trained/nn_win_2020_2022.rds")
+nn_win <- read_rds("../NBAdb/models/trained_models/nn_win_20_23.rds")
 
 # predictions
 win_pred <- predict(nn_win, test, type = "prob")
+confusionMatrix(test$team_winner,
+                factor(ifelse(win_pred[,1] > 0.5, "win", "loss"), 
+                       levels = c("win","loss")),
+                positive = "win")
 
-model_outputs <- model_outputs %>%
+nba_final_win_outputs <- nba_final_win_outputs %>%
     mutate(nn_win_team = as.numeric(win_pred[,1]),
            nn_win_opp = as.numeric(win_pred[,2]))
 
-# team winner extreme gradient boosting model ----
-
-# saveRDS(xgb_win, "../NBAdb/models/models_trained/xgb_win_2020_2022.rds")
-xgb_win <- read_rds("../NBAdb/models/models_trained/xgb_win_2020_2022.rds")
-
-# predictions
-win_pred <- predict(xgb_win, test, type = "prob")
-
-model_outputs <- model_outputs %>%
-    mutate(xgb_win_team = as.numeric(win_pred[,1]),
-           xgb_win_opp = as.numeric(win_pred[,2]))
 
 
 # team score models ----
+nba_final_test <- nba_final %>%
+    filter(season_year == 2024) %>%
+    select(team_score, location,
+           is_b2b_first:opp_is_b2b_second, over_under, team_implied_prob,
+           team_fgm:opp_opp_pct_uast_fgm) %>%
+    select(-contains("_rating"))
+
+cor_cols <- read_rds("../NBAdb/models/trained_models/cor_cols_score.rds")
+pre_proc_cs_score <- read_rds("../NBAdb/models/trained_models/pre_proc_cs_score.rds")
+
+test <- nba_final_test %>%
+    select(-all_of(cor_cols)) %>%
+    mutate(across(location:opp_is_b2b_second, factor))
+
+test[,-1] <- predict(pre_proc_cs_score, test[,-1])
+
 
 # team score linear regression model ----
-
-# saveRDS(lin_team, "../NBAdb/models/models_trained/lin_team_2020_2022.rds")
-lin_team <- read_rds("../NBAdb/models/models_trained/lin_team_2020_2022.rds")
+lin_team <- read_rds("../NBAdb/models/trained_models/lin_team_20_23.rds")
 
 # predictions
 team_pred <- predict(lin_team, test)
-model_outputs <- model_outputs %>%
-    mutate(lin_team_score = as.numeric(team_pred))
+postResample(pred = team_pred, obs = test$team_score)
+
+team_pred <- data.frame(team_pred)
+team_pred <- team_pred %>%
+    mutate(opp_pred = if_else(row_number() %% 2 == 0, lag(team_pred), lead(team_pred)))
+nba_final_ts_outputs <- nba_final_ts_outputs %>%
+    mutate(lin_team_score = as.numeric(team_pred$team_pred),
+           lin_opp_score = as.numeric(team_pred$opp_pred))
 
 
 # team score ridge regression model ----
-
-# saveRDS(reg_team, "../NBAdb/models/models_trained/reg_team_2020_2022.rds")
-reg_team <- read_rds("../NBAdb/models/models_trained/reg_team_2020_2022.rds")
+reg_team <- read_rds("../NBAdb/models/trained_models/reg_team_20_23.rds")
 
 # predictions
 team_pred <- predict(reg_team, test)
-model_outputs <- model_outputs %>%
-    mutate(reg_team_score = as.numeric(team_pred))
+postResample(pred = team_pred, obs = test$team_score)
 
-
-# team score knn model ----
-
-# saveRDS(knn_team, "../NBAdb/models/models_trained/knn_team_2020_2022.rds")
-knn_team <- read_rds("../NBAdb/models/models_trained/knn_team_2020_2022.rds")
-
-# predictions
-team_pred <- predict(knn_team, test)
-model_outputs <- model_outputs %>%
-    mutate(knn_team_score = as.numeric(team_pred))
+team_pred <- data.frame(team_pred)
+team_pred <- team_pred %>%
+    mutate(opp_pred = if_else(row_number() %% 2 == 0, lag(team_pred), lead(team_pred)))
+nba_final_ts_outputs <- nba_final_ts_outputs %>%
+    mutate(reg_team_score = as.numeric(team_pred$team_pred),
+           reg_opp_score = as.numeric(team_pred$opp_pred))
 
 
 # team score random forest model ----
-
-# saveRDS(rf_team, "../NBAdb/models/models_trained/rf_team_2020_2022.rds")
-rf_team <- read_rds("../NBAdb/models/models_trained/rf_team_2020_2022.rds")
+rf_team <- read_rds("../NBAdb/models/trained_models/rf_team_20_23.rds")
 
 
 # predictions
 team_pred <- predict(rf_team, test)
-model_outputs <- model_outputs %>%
-    mutate(rf_team_score = as.numeric(team_pred))
+postResample(pred = team_pred, obs = test$team_score)
 
-
-# team score support vector machines model ----
-
-# saveRDS(svm_team, "../NBAdb/models/models_trained/svm_team_2020_2022.rds")
-svm_team <- read_rds("../NBAdb/models/models_trained/svm_team_2020_2022.rds")
-
-# predictions
-team_pred <- predict(svm_team, test)
-model_outputs <- model_outputs %>%
-    mutate(svm_team_score = as.numeric(team_pred))
-
-
-# team score neural net model ----
-
-# saveRDS(nn_team, "../NBAdb/models/models_trained/nn_team_2020_2022.rds")
-nn_team <- read_rds("../NBAdb/models/models_trained/nn_team_2020_2022.rds")
-
-
-# predictions
-team_pred <- predict(nn_team, test)
-model_outputs <- model_outputs %>%
-    mutate(nn_team_score = as.numeric(team_pred))
+team_pred <- data.frame(team_pred)
+team_pred <- team_pred %>%
+    mutate(opp_pred = if_else(row_number() %% 2 == 0, lag(team_pred), lead(team_pred)))
+nba_final_ts_outputs <- nba_final_ts_outputs %>%
+    mutate(rf_team_score = as.numeric(team_pred$team_pred),
+           rf_opp_score = as.numeric(team_pred$opp_pred))
 
 
 # team score extreme gradient boosting model ----
-
-# saveRDS(xgb_team, "../NBAdb/models/models_trained/xgb_team_2020_2022.rds")
-xgb_team <- read_rds("../NBAdb/models/models_trained/xgb_team_2020_2022.rds")
+xgb_team <- read_rds("../NBAdb/models/trained_models/xgb_team_20_23.rds")
 
 # predictions
 team_pred <- predict(xgb_team, test)
-model_outputs <- model_outputs %>%
-    mutate(xgb_team_score = as.numeric(team_pred))
+postResample(pred = team_pred, obs = test$team_score)
+
+team_pred <- data.frame(team_pred)
+team_pred <- team_pred %>%
+    mutate(opp_pred = if_else(row_number() %% 2 == 0, lag(team_pred), lead(team_pred)))
+nba_final_ts_outputs <- nba_final_ts_outputs %>%
+    mutate(xgb_team_score = as.numeric(team_pred$team_pred),
+           xgb_opp_score = as.numeric(team_pred$opp_pred))
 
 
-# opp score models ----
-
-# opp score linear regression model ----
-
-# saveRDS(lin_opp, "../NBAdb/models/models_trained/lin_opp_2020_2022.rds")
-lin_opp <- read_rds("../NBAdb/models/models_trained/lin_opp_2020_2022.rds")
-
-
-# predictions
-opp_pred <- predict(lin_opp, test)
-model_outputs <- model_outputs %>%
-    mutate(lin_opp_score = as.numeric(opp_pred))
-
-
-# opp score ridge regression model ----
-
-# saveRDS(reg_opp, "../NBAdb/models/models_trained/reg_opp_2020_2022.rds")
-reg_opp <- read_rds("../NBAdb/models/models_trained/reg_opp_2020_2022.rds")
-
+# team score boosted generalized linear model ----
+glmb_team <- read_rds("../NBAdb/models/trained_models/glmb_team_20_23.rds")
 
 # predictions
-opp_pred <- predict(reg_opp, test)
-model_outputs <- model_outputs %>%
-    mutate(reg_opp_score = as.numeric(opp_pred))
+team_pred <- predict(glmb_team, test)
+postResample(pred = team_pred, obs = test$team_score)
+
+team_pred <- data.frame(team_pred)
+team_pred <- team_pred %>%
+    mutate(opp_pred = if_else(row_number() %% 2 == 0, lag(team_pred), lead(team_pred)))
+nba_final_ts_outputs <- nba_final_ts_outputs %>%
+    mutate(glmb_team_score = as.numeric(team_pred$team_pred),
+           glmb_opp_score = as.numeric(team_pred$opp_pred))
 
 
-# opp score knn model ----
-
-# saveRDS(knn_opp, "../NBAdb/models/models_trained/knn_opp_2020_2022.rds")
-knn_opp <- read_rds("../NBAdb/models/models_trained/knn_opp_2020_2022.rds")
-
-
-# predictions
-opp_pred <- predict(knn_opp, test)
-model_outputs <- model_outputs %>%
-    mutate(knn_opp_score = as.numeric(opp_pred))
-
-
-# opp score random forest model ----
-
-# saveRDS(rf_opp, "../NBAdb/models/models_trained/rf_opp_2020_2022.rds")
-rf_opp <- read_rds("../NBAdb/models/models_trained/rf_opp_2020_2022.rds")
-
+# team score earth model ----
+mars_team <- read_rds("../NBAdb/models/trained_models/mars_team_20_23.rds")
 
 # predictions
-opp_pred <- predict(rf_opp, test)
-model_outputs <- model_outputs %>%
-    mutate(rf_opp_score = as.numeric(opp_pred))
+team_pred <- predict(mars_team, test)
+postResample(pred = team_pred, obs = test$team_score)
+
+team_pred <- data.frame(team_pred) %>% rename(team_pred = y)
+team_pred <- team_pred %>%
+    mutate(opp_pred = if_else(row_number() %% 2 == 0, lag(team_pred), lead(team_pred)))
+nba_final_ts_outputs <- nba_final_ts_outputs %>%
+    mutate(mars_team_score = as.numeric(team_pred$team_pred),
+           mars_opp_score = as.numeric(team_pred$opp_pred))
 
 
-# opp score support vector machines model ----
+# Yeo Johnson pre-processed
+pre_proc_yj_score <- read_rds("../NBAdb/models/trained_models/pre_proc_yj_score.rds")
 
-# saveRDS(svm_opp, "../NBAdb/models/models_trained/svm_opp_2020_2022.rds")
-svm_opp <- read_rds("../NBAdb/models/models_trained/svm_opp_2020_2022.rds")
+test <- nba_final_test %>%
+    select(-all_of(cor_cols)) %>%
+    mutate(across(location:opp_is_b2b_second, factor))
 
+test[,-1] <- predict(pre_proc_yj_score, test[,-1])
 
-# predictions
-opp_pred <- predict(svm_opp, test)
-model_outputs <- model_outputs %>%
-    mutate(svm_opp_score = as.numeric(opp_pred))
-
-
-# opp score neural net model ----
-
-# saveRDS(nn_opp, "../NBAdb/models/models_trained/nn_opp_2020_2022.rds")
-nn_opp <- read_rds("../NBAdb/models/models_trained/nn_opp_2020_2022.rds")
-
-
-# predictions
-opp_pred <- predict(nn_opp, test)
-model_outputs <- model_outputs %>%
-    mutate(nn_opp_score = as.numeric(opp_pred))
-
-
-# opp score extreme gradient boosting model ----
-
-# saveRDS(xgb_opp, "../NBAdb/models/models_trained/xgb_opp_2020_2022.rds")
-xgb_opp <- read_rds("../NBAdb/models/models_trained/xgb_opp_2020_2022.rds")
+# team score support vector machines model ----
+svm_team <- read_rds("../NBAdb/models/trained_models/svm_team_20_23.rds")
 
 # predictions
-opp_pred <- predict(xgb_opp, test)
-model_outputs <- model_outputs %>%
-    mutate(xgb_opp_score = as.numeric(opp_pred))
+team_pred <- predict(svm_team, test)
+postResample(pred = team_pred, obs = test$team_score)
+
+team_pred <- data.frame(team_pred)
+team_pred <- team_pred %>%
+    mutate(opp_pred = if_else(row_number() %% 2 == 0, lag(team_pred), lead(team_pred)))
+nba_final_ts_outputs <- nba_final_ts_outputs %>%
+    mutate(svm_team_score = as.numeric(team_pred$team_pred),
+           svm_opp_score = as.numeric(team_pred$opp_pred))
+
+
+# team score neural net model ----
+nn_team <- read_rds("../NBAdb/models/trained_models/nn_team_20_23.rds")
+
+# predictions
+team_pred <- predict(nn_team, test)
+postResample(pred = team_pred, obs = test$team_score)
+
+team_pred <- data.frame(team_pred)
+team_pred <- team_pred %>%
+    mutate(opp_pred = if_else(row_number() %% 2 == 0, lag(team_pred), lead(team_pred)))
+nba_final_ts_outputs <- nba_final_ts_outputs %>%
+    mutate(nn_team_score = as.numeric(team_pred$team_pred),
+           nn_opp_score = as.numeric(team_pred$opp_pred))
+
+
+
+
+model_outputs <- nba_final_full %>%
+    left_join(
+        nba_final_win_outputs %>%
+            select(game_id, team_id, log_win_team:nn_win_opp),
+        by = c("game_id" = "game_id", "team_id" = "team_id")
+    ) %>%
+    mutate(
+        across(log_win_team:nn_win_opp, ~if_else(is.na(.), 1 - lag(.), .) %>%
+                   round(3))
+    ) %>%
+    left_join(
+        nba_final_ts_outputs %>%
+            select(game_id, team_id, lin_team_score:nn_opp_score),
+        by = c("game_id" = "game_id", "team_id" = "team_id")
+    ) %>%
+    mutate(
+        across(lin_team_score:nn_team_score, \(x) round(x, 1))
+    )
 
 
 
 
 
-# results book
-model_outputs <- read_rds("./backest_output/model_outputs_w15.rds")
 
 
+
+
+
+# results book ----
 results_book <- model_outputs %>%
     mutate(
-        ens_win_away = rowMeans(select(.,log_win_away,reg_win_away,
-                                       svm_win_away,nn_win_away,
-                                       xgb_win_away), na.rm = TRUE),
-        ens_win_home = 1 - ens_win_away,
-        ens_team_score = rowMeans(select(.,lin_team_score,reg_team_score,
-                                         svm_team_score,nn_team_score,
-                                         xgb_team_score), na.rm = TRUE),
-        ens_opp_score = rowMeans(select(.,lin_opp_score,reg_opp_score,
-                                        svm_opp_score,nn_opp_score,
-                                        xgb_opp_score), na.rm = TRUE),
-        away_ml_result = case_when(
-            away_moneyline > 0 & team_winner == "win" ~ away_moneyline/100,
-            away_moneyline > 0 & team_winner == "loss" ~ -1,
-            away_moneyline < 0 & team_winner == "win" ~ 1,
-            away_moneyline < 0 & team_winner == "loss" ~ away_moneyline/100),
-        home_ml_result = case_when(
-            home_moneyline > 0 & team_winner == "loss" ~ home_moneyline/100,
-            home_moneyline > 0 & team_winner == "win" ~ -1,
-            home_moneyline < 0 & team_winner == "loss" ~ 1,
-            home_moneyline < 0 & team_winner == "win" ~ home_moneyline/100),
-        away_ats_result = if_else((plus_minus + away_spread) == 0, 0,
-                                  if_else((plus_minus + away_spread) > 0,
+        # ens_win_team = rowMeans(select(.,log_win_team,reg_win_team,
+        #                                svm_win_team,nn_win_team,
+        #                                xgb_win_team), na.rm = TRUE),
+        # ens_win_opp = 1 - ens_win_team,
+        # ens_team_score = rowMeans(select(.,lin_team_score,reg_team_score,
+        #                                  svm_team_score,nn_team_score,
+        #                                  xgb_team_score), na.rm = TRUE),
+        # ens_opp_score = rowMeans(select(.,lin_opp_score,reg_opp_score,
+        #                                 svm_opp_score,nn_opp_score,
+        #                                 xgb_opp_score), na.rm = TRUE),
+        team_ml_result = case_when(
+            team_moneyline > 0 & team_winner == "win" ~ team_moneyline/100,
+            team_moneyline > 0 & team_winner == "loss" ~ -1,
+            team_moneyline < 0 & team_winner == "win" ~ 1,
+            team_moneyline < 0 & team_winner == "loss" ~ team_moneyline/100),
+        opp_ml_result = case_when(
+            opp_moneyline > 0 & team_winner == "loss" ~ opp_moneyline/100,
+            opp_moneyline > 0 & team_winner == "win" ~ -1,
+            opp_moneyline < 0 & team_winner == "loss" ~ 1,
+            opp_moneyline < 0 & team_winner == "win" ~ opp_moneyline/100),
+        team_ats_result = if_else((plus_minus + team_spread) == 0, 0,
+                                  if_else((plus_minus + team_spread) > 0,
                                           1, -1.1)),
-        home_ats_result = if_else((plus_minus + home_spread) == 0, 0,
-                                  if_else((-plus_minus + home_spread) > 0,
+        opp_ats_result = if_else((plus_minus + opp_spread) == 0, 0,
+                                  if_else((-plus_minus + opp_spread) > 0,
                                           1, -1.1)),
         over_game_result = if_else((team_score + opp_score) == 0, 0,
                                    if_else((team_score + opp_score) > over_under,
@@ -337,7 +396,7 @@ results_book <- model_outputs %>%
                                             1, -1.1))
     )
 
-win_columns <- names(results_book %>% select(ends_with("win_away")))
+win_columns <- names(results_book %>% select(ends_with("win_team")))
 team_columns <- names(results_book %>% select(ends_with("_team_score")))
 opp_columns <- names(results_book %>% select(ends_with("_opp_score")))
 
@@ -345,34 +404,34 @@ opp_columns <- names(results_book %>% select(ends_with("_opp_score")))
 for (i in seq_along(win_columns)) {
     model_edges <- results_book %>%
         mutate(
-            win_edge = abs(.data[[win_columns[[i]]]] - away_implied_prob),
-            spread_edge = abs((.data[[team_columns[[i]]]] - .data[[opp_columns[[i]]]]) + away_spread),
+            win_edge = .data[[win_columns[[i]]]] - team_implied_prob,
+            spread_edge = (.data[[team_columns[[i]]]] - .data[[opp_columns[[i]]]]) + team_spread,
             over_edge = (.data[[team_columns[[i]]]] + .data[[opp_columns[[i]]]]) - over_under,
             under_edge = over_under - (.data[[team_columns[[i]]]] + .data[[opp_columns[[i]]]]),
-            win_result = if_else(.data[[win_columns[[i]]]] - away_implied_prob > 0,
-                                 away_ml_result, home_ml_result),
-            spread_result = if_else((.data[[team_columns[[i]]]] - .data[[opp_columns[[i]]]]) + away_spread > 0,
-                                    away_ats_result, home_ats_result),
+            win_result = if_else(.data[[win_columns[[i]]]] - team_implied_prob > 0,
+                                 team_ml_result, opp_ml_result),
+            spread_result = if_else((.data[[team_columns[[i]]]] - .data[[opp_columns[[i]]]]) + team_spread > 0,
+                                    team_ats_result, opp_ats_result),
             over_under_result = if_else(over_edge > 0,
                                         over_game_result, under_game_result),
-            ml_wager = if_else(.data[[win_columns[[i]]]] - away_implied_prob > 0,
-                               ifelse(away_moneyline < 100,
-                                      away_moneyline/-100, 1),
-                               ifelse(home_moneyline < 100,
-                                      home_moneyline/-100, 1))
+            ml_wager = if_else(.data[[win_columns[[i]]]] - team_implied_prob > 0,
+                               ifelse(team_moneyline < 100,
+                                      team_moneyline/-100, 1),
+                               ifelse(opp_moneyline < 100,
+                                      opp_moneyline/-100, 1))
         ) %>%
-        select(game_id,win_edge:ml_wager)
+        select(game_id,team_id,win_edge:ml_wager)
     
     colnames(model_edges) <- c(
-        "game_id",
-        paste0(sub("_win_away$", "", win_columns[i]),"_win_edge"),
+        "game_id","team_id",
+        paste0(sub("_win_team$", "", win_columns[i]),"_win_edge"),
         paste0(sub("_team_score$", "", team_columns[i]),"_spread_edge"),
         paste0(sub("_team_score$", "", team_columns[i]),"_over_edge"),
         paste0(sub("_team_score$", "", team_columns[i]),"_under_edge"),
-        paste0(sub("_win_away$", "", win_columns[i]),"_win_result"),
+        paste0(sub("_win_team$", "", win_columns[i]),"_win_result"),
         paste0(sub("_team_score$", "", team_columns[i]),"_spread_result"),
         paste0(sub("_team_score$", "", team_columns[i]),"_over_under_result"),
-        paste0(sub("_win_away$", "", win_columns[i]),"_ml_wager")
+        paste0(sub("_win_team$", "", win_columns[i]),"_ml_wager")
     )
     
     edge_columns <- names(model_edges %>% select(ends_with("edge")))
