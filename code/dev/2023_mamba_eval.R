@@ -186,8 +186,7 @@ nba_final_test <- nba_final %>%
     filter(season_year == 2024) %>%
     select(team_score, location,
            is_b2b_first:opp_is_b2b_second, over_under, team_implied_prob,
-           team_fgm:opp_opp_pct_uast_fgm) %>%
-    select(-contains("_rating"))
+           team_fgm:opp_opp_pct_uast_fgm)
 
 cor_cols <- read_rds("../NBAdb/models/trained_models/cor_cols_score.rds")
 pre_proc_cs_score <- read_rds("../NBAdb/models/trained_models/pre_proc_cs_score.rds")
