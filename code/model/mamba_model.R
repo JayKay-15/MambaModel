@@ -380,7 +380,7 @@ mamba_nba <- function(seasons) {
     # assign(x = "mamba_raw_stats", raw_stats, envir = .GlobalEnv)
     
     # lagged stats in mamba format - long
-    assign(x = "mamba_lag_long", nba_final_full, envir = .GlobalEnv)
+    assign(x = "mamba_daily", nba_final_full, envir = .GlobalEnv)
     
     # # lagged stats in mamba format - wide
     # assign(x = "mamba_lag_wide", nba_final, envir = .GlobalEnv)
@@ -388,12 +388,12 @@ mamba_nba <- function(seasons) {
 
 add_stats <- function() {
     
-    team_stats <- mamba_lag_long %>%
+    team_stats <- mamba_daily %>%
         group_by(team_name) %>%
         slice(tail(row_number(), 1)) %>%
         select(team_name, team_fgm:team_opp_pct_uast_fgm)
     
-    opps_stats <- mamba_lag_long %>%
+    opps_stats <- mamba_daily %>%
         group_by(team_name) %>%
         slice(tail(row_number(), 1)) %>%
         select(team_name, team_fgm:team_opp_pct_uast_fgm) %>%
@@ -431,30 +431,32 @@ load_model_rds_files <- function(directory_path) {
     # Use a for loop to read each RDS file and store the results in a list
     for (file in rds_files) {
         # Extract the desired part of the file name
-        file_name <- sub("_2019_2021.*", "", tools::file_path_sans_ext(basename(file)))
+        file_name <- sub("_20_23.*", "", tools::file_path_sans_ext(basename(file)))
         # Read the RDS file and assign to the list using the extracted file_name as the list element name
         loaded_data[[file_name]] <- readRDS(file)
     }
     
     # Create separate lists based on names
     win_models <- loaded_data[grep("win", names(loaded_data), ignore.case = TRUE)]
-    team_models <- loaded_data[grep("team", names(loaded_data), ignore.case = TRUE)]
-    opp_models <- loaded_data[grep("opp", names(loaded_data), ignore.case = TRUE)]
-    pre_proc_val <- loaded_data[["pre_proc_val"]]
+    team_models <- loaded_data[grep("team|score", names(loaded_data), ignore.case = TRUE)]
     
-    win_models <- win_models[c("log_win", "reg_win", "knn_win", "rf_win",
-                              "svm_win", "nn_win", "xgb_win")]
-    team_models <- team_models[c("lin_team", "reg_team", "knn_team", "rf_team",
-                                 "svm_team", "nn_team", "xgb_team")]
-    opp_models <- opp_models[c("lin_opp", "reg_opp", "knn_opp", "rf_opp",
-                               "svm_opp", "nn_opp", "xgb_opp")]
-    
+    win_models <- win_models[c("cor_cols_win", "glmb_win", "log_win", "mars_win",
+                               "nn_win", "pre_proc_cs_win", "pre_proc_yj_win",
+                               "reg_win", "rf_win", "svm_win", "xgb_win")]
+    team_models <- team_models[c("cor_cols_score", "glmb_team", "lin_team", "mars_team",
+                                 "nn_team", "pre_proc_cs_score", "pre_proc_yj_score",
+                                 "reg_team", "rf_team", "svm_team", "xgb_team")]
+
     # Return a list containing the three sublists
     return(list(win_models = win_models,
-                team_models = team_models,
-                opp_models = opp_models,
-                pre_proc_val = pre_proc_val))
+                team_models = team_models))
 }
+
+
+
+
+
+
 
 # function to make predictions
 make_predictions <- function(model_type, model_list, input_data,
@@ -503,36 +505,40 @@ mamba_nba(2024)
 
 add_stats()
 
-mamba_test <- mamba_today %>%
-    select(is_b2b_first:opp_is_b2b_second, over_under, team_implied_prob,
+mamba_inputs <- mamba_today %>%
+    select(location, is_b2b_first:opp_is_b2b_second, over_under, team_implied_prob,
            team_fgm:opp_opp_pct_uast_fgm)
-
-
-# left off 3/23 ---
-
-cor_cols <- read_rds("../NBAdb/models/trained_models/cor_cols_win.rds")
-pre_proc_cs_win <- read_rds("../NBAdb/models/trained_models/pre_proc_cs_win.rds")
-pre_proc_yj_win <- read_rds("../NBAdb/models/trained_models/pre_proc_yj_win.rds")
-
-
-cor_cols <- read_rds("../NBAdb/models/trained_models/cor_cols_score.rds")
-pre_proc_cs_score <- read_rds("../NBAdb/models/trained_models/pre_proc_cs_score.rds")
-pre_proc_yj_score <- read_rds("../NBAdb/models/trained_models/pre_proc_yj_score.rds")
-
-
-
 
 #### prepare for predictions ----
 directory_path <- "../NBAdb/models/trained_models/"
 model_list <- invisible(load_model_rds_files(directory_path))
 
-# mamba slate for predictions
-slate_mamba <- slate_today %>%
-    left_join(mamba_away, by = c("away_team_name" = "team_name")) %>%
-    left_join(mamba_home, by = c("home_team_name" = "team_name")) %>%
-    select(away_team_name, all_of(model_list$pre_proc_val$method$center))
+#### prepare model inputs
+mamaba_win_cs <- mamba_inputs %>%
+    select(-location, -all_of(model_list$win_models$cor_cols_win)) %>%
+    mutate(across(is_b2b_first:opp_is_b2b_second, factor))
+mamaba_win_cs <- predict(model_list$win_models$pre_proc_cs_win, mamaba_win_cs)
 
-mamba_input <- predict(model_list$pre_proc_val,  slate_mamba[-1])
+mamaba_win_yj <- mamba_inputs %>%
+    select(-location, -all_of(model_list$win_models$cor_cols_win)) %>%
+    mutate(across(is_b2b_first:opp_is_b2b_second, factor))
+mamaba_win_yj <- predict(model_list$win_models$pre_proc_yj_win, mamaba_win_yj)
+
+mamaba_score_cs <- mamba_inputs %>%
+    select(-all_of(model_list$team_models$cor_cols_score)) %>%
+    mutate(across(location:opp_is_b2b_second, factor))
+mamaba_score_cs <- predict(model_list$team_models$pre_proc_cs_score, mamaba_score_cs)
+
+mamaba_score_yj <- mamba_inputs %>%
+    select(-all_of(model_list$team_models$cor_cols_score)) %>%
+    mutate(across(location:opp_is_b2b_second, factor))
+mamaba_score_yj <- predict(model_list$team_models$pre_proc_yj_score, mamaba_score_yj)
+
+
+
+### left off 3/24 --- function for predictions
+
+
 
 
 #### make predictions ----
