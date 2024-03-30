@@ -209,8 +209,8 @@ team_pred <- data.frame(team_pred)
 team_pred <- team_pred %>%
     mutate(opp_pred = if_else(row_number() %% 2 == 0, lag(team_pred), lead(team_pred)))
 nba_final_ts_outputs <- nba_final_ts_outputs %>%
-    mutate(lin_team_score = as.numeric(team_pred$team_pred),
-           lin_opp_score = as.numeric(team_pred$opp_pred))
+    mutate(lin_score_team = as.numeric(team_pred$team_pred),
+           lin_score_opp = as.numeric(team_pred$opp_pred))
 
 
 # team score ridge regression model ----
@@ -224,8 +224,8 @@ team_pred <- data.frame(team_pred)
 team_pred <- team_pred %>%
     mutate(opp_pred = if_else(row_number() %% 2 == 0, lag(team_pred), lead(team_pred)))
 nba_final_ts_outputs <- nba_final_ts_outputs %>%
-    mutate(reg_team_score = as.numeric(team_pred$team_pred),
-           reg_opp_score = as.numeric(team_pred$opp_pred))
+    mutate(reg_score_team = as.numeric(team_pred$team_pred),
+           reg_score_opp = as.numeric(team_pred$opp_pred))
 
 
 # team score random forest model ----
@@ -240,8 +240,8 @@ team_pred <- data.frame(team_pred)
 team_pred <- team_pred %>%
     mutate(opp_pred = if_else(row_number() %% 2 == 0, lag(team_pred), lead(team_pred)))
 nba_final_ts_outputs <- nba_final_ts_outputs %>%
-    mutate(rf_team_score = as.numeric(team_pred$team_pred),
-           rf_opp_score = as.numeric(team_pred$opp_pred))
+    mutate(rf_score_team = as.numeric(team_pred$team_pred),
+           rf_score_opp = as.numeric(team_pred$opp_pred))
 
 
 # team score extreme gradient boosting model ----
@@ -255,8 +255,8 @@ team_pred <- data.frame(team_pred)
 team_pred <- team_pred %>%
     mutate(opp_pred = if_else(row_number() %% 2 == 0, lag(team_pred), lead(team_pred)))
 nba_final_ts_outputs <- nba_final_ts_outputs %>%
-    mutate(xgb_team_score = as.numeric(team_pred$team_pred),
-           xgb_opp_score = as.numeric(team_pred$opp_pred))
+    mutate(xgb_score_team = as.numeric(team_pred$team_pred),
+           xgb_score_opp = as.numeric(team_pred$opp_pred))
 
 
 # team score boosted generalized linear model ----
@@ -270,8 +270,8 @@ team_pred <- data.frame(team_pred)
 team_pred <- team_pred %>%
     mutate(opp_pred = if_else(row_number() %% 2 == 0, lag(team_pred), lead(team_pred)))
 nba_final_ts_outputs <- nba_final_ts_outputs %>%
-    mutate(glmb_team_score = as.numeric(team_pred$team_pred),
-           glmb_opp_score = as.numeric(team_pred$opp_pred))
+    mutate(glmb_score_team = as.numeric(team_pred$team_pred),
+           glmb_score_opp = as.numeric(team_pred$opp_pred))
 
 
 # team score earth model ----
@@ -285,8 +285,8 @@ team_pred <- data.frame(team_pred) %>% rename(team_pred = y)
 team_pred <- team_pred %>%
     mutate(opp_pred = if_else(row_number() %% 2 == 0, lag(team_pred), lead(team_pred)))
 nba_final_ts_outputs <- nba_final_ts_outputs %>%
-    mutate(mars_team_score = as.numeric(team_pred$team_pred),
-           mars_opp_score = as.numeric(team_pred$opp_pred))
+    mutate(mars_score_team = as.numeric(team_pred$team_pred),
+           mars_score_opp = as.numeric(team_pred$opp_pred))
 
 
 # Yeo Johnson pre-processed
@@ -309,8 +309,8 @@ team_pred <- data.frame(team_pred)
 team_pred <- team_pred %>%
     mutate(opp_pred = if_else(row_number() %% 2 == 0, lag(team_pred), lead(team_pred)))
 nba_final_ts_outputs <- nba_final_ts_outputs %>%
-    mutate(svm_team_score = as.numeric(team_pred$team_pred),
-           svm_opp_score = as.numeric(team_pred$opp_pred))
+    mutate(svm_score_team = as.numeric(team_pred$team_pred),
+           svm_score_opp = as.numeric(team_pred$opp_pred))
 
 
 # team score neural net model ----
@@ -324,8 +324,8 @@ team_pred <- data.frame(team_pred)
 team_pred <- team_pred %>%
     mutate(opp_pred = if_else(row_number() %% 2 == 0, lag(team_pred), lead(team_pred)))
 nba_final_ts_outputs <- nba_final_ts_outputs %>%
-    mutate(nn_team_score = as.numeric(team_pred$team_pred),
-           nn_opp_score = as.numeric(team_pred$opp_pred))
+    mutate(nn_score_team = as.numeric(team_pred$team_pred),
+           nn_score_opp = as.numeric(team_pred$opp_pred))
 
 
 model_outputs <- model_outputs %>%
@@ -339,7 +339,7 @@ model_outputs <- model_outputs %>%
     ) %>%
     left_join(
         nba_final_ts_outputs %>%
-            select(game_id, team_id, lin_team_score:nn_opp_score),
+            select(game_id, team_id, lin_score_team:nn_score_opp),
         by = c("game_id" = "game_id", "team_id" = "team_id")
     )
 
@@ -378,8 +378,8 @@ process_results_book <- function(model_outputs) {
         )
     
     win_columns <- names(results_book %>% select(ends_with("win_team")))
-    team_columns <- names(results_book %>% select(ends_with("_team_score")))
-    opp_columns <- names(results_book %>% select(ends_with("_opp_score")))
+    team_columns <- names(results_book %>% select(ends_with("_score_team")))
+    opp_columns <- names(results_book %>% select(ends_with("_score_opp")))
     
     
     for (i in seq_along(win_columns)) {
@@ -408,11 +408,11 @@ process_results_book <- function(model_outputs) {
         colnames(model_edges) <- c(
             "game_id","team_id",
             paste0(sub("_win_team$", "", win_columns[i]),"_win_edge"),
-            paste0(sub("_team_score$", "", team_columns[i]),"_spread_edge"),
-            paste0(sub("_team_score$", "", team_columns[i]),"_over_under_edge"),
+            paste0(sub("_score_team$", "", team_columns[i]),"_spread_edge"),
+            paste0(sub("_score_team$", "", team_columns[i]),"_over_under_edge"),
             paste0(sub("_win_team$", "", win_columns[i]),"_win_result"),
-            paste0(sub("_team_score$", "", team_columns[i]),"_spread_result"),
-            paste0(sub("_team_score$", "", team_columns[i]),"_over_under_result"),
+            paste0(sub("_score_team$", "", team_columns[i]),"_spread_result"),
+            paste0(sub("_score_team$", "", team_columns[i]),"_over_under_result"),
             paste0(sub("_win_team$", "", win_columns[i]),"_ml_wager")
         )
         
