@@ -438,48 +438,67 @@ load_model_rds_files <- function(directory_path) {
     
     # Create separate lists based on names
     win_models <- loaded_data[grep("win", names(loaded_data), ignore.case = TRUE)]
-    team_models <- loaded_data[grep("team|score", names(loaded_data), ignore.case = TRUE)]
+    score_models <- loaded_data[grep("score", names(loaded_data), ignore.case = TRUE)]
     
     win_models <- win_models[c("cor_cols_win", "glmb_win", "log_win", "mars_win",
                                "nn_win", "pre_proc_cs_win", "pre_proc_yj_win",
                                "reg_win", "rf_win", "svm_win", "xgb_win")]
-    team_models <- team_models[c("cor_cols_score", "glmb_team", "lin_team", "mars_team",
-                                 "nn_team", "pre_proc_cs_score", "pre_proc_yj_score",
-                                 "reg_team", "rf_team", "svm_team", "xgb_team")]
+    score_models <- score_models[c("cor_cols_score", "glmb_score", "lin_score", "mars_score",
+                                 "nn_score", "pre_proc_cs_score", "pre_proc_yj_score",
+                                 "reg_score", "rf_score", "svm_score", "xgb_score")]
 
     # Return a list containing the three sublists
     return(list(win_models = win_models,
-                team_models = team_models))
+                score_models = score_models))
 }
-
-
-
-
-
-
 
 # function to make predictions
-make_predictions <- function(model_type, model_list, input_data,
-                             output_col_suffix) {
-    cols <- character(0)
+make_predictions <- function(model_type, model_list) {
+    model_preds <- character(0)
     
-    for (i in seq_along(model_list[[model_type]])) {
-        model <- model_list[[model_type]][[i]]
+    for (i in seq_along(model_list_pred[[model_type]])) {
+        model <- model_list_pred[[model_type]][[i]]
         
         if (model_type == "win_models") {
-            pred <- predict(model, input_data, type = "prob")[1]
+            if (!grepl("svm|nn", model$method)) {
+                pred <- predict(model, mamba_win_cs, type = "prob")[1]
+                pred <- pred %>%
+                    mutate(win = if_else(row_number() %% 2 == 0,
+                                         1 - lag(win), win),
+                           opp_pred = 1 - win)
+            } else {
+                pred <- predict(model, mamba_win_yj, type = "prob")[1]
+                pred <- pred %>%
+                    mutate(win = if_else(row_number() %% 2 == 0,
+                                         1 - lag(win), win),
+                           opp_pred = 1 - win)
+            }
+        } else if (model_type == "score_models") {
+            if (!grepl("svm|nn", model$method)) {
+                pred <- as.data.frame(predict(model, mamba_score_cs))
+                colnames(pred)[1] <- "score"
+                pred <- pred %>%
+                    mutate(opp_pred = if_else(row_number() %% 2 == 0,
+                                              lag(pred$score), lead(pred$score)))
+            } else {
+                pred <- as.data.frame(predict(model, mamba_score_yj))
+                colnames(pred)[1] <- "score"
+                pred <- pred %>%
+                    mutate(opp_pred = if_else(row_number() %% 2 == 0,
+                                              lag(pred$score), lead(pred$score)))
+            }
         } else {
-            pred <- as.data.frame(predict(model, input_data))
+            stop("Unknown model type")
         }
         
-        new_cols <- paste0(names(model_list[[model_type]][i]), output_col_suffix)
+        new_cols <- c(paste0(names(model_list_pred[[model_type]][i]), "_team"),
+                      paste0(names(model_list_pred[[model_type]][i]), "_opp"))
         colnames(pred) <- new_cols
-        cols <- c(cols, pred)
+        model_preds <- c(model_preds, pred)
     }
     
-    return(cols)
+    return(model_preds)
 }
-
 
 
 #### schedule and odds ----
@@ -514,44 +533,67 @@ directory_path <- "../NBAdb/models/trained_models/"
 model_list <- invisible(load_model_rds_files(directory_path))
 
 #### prepare model inputs
-mamaba_win_cs <- mamba_inputs %>%
+mamba_win_cs <- mamba_inputs %>%
     select(-location, -all_of(model_list$win_models$cor_cols_win)) %>%
     mutate(across(is_b2b_first:opp_is_b2b_second, factor))
-mamaba_win_cs <- predict(model_list$win_models$pre_proc_cs_win, mamaba_win_cs)
+mamba_win_cs <- predict(model_list$win_models$pre_proc_cs_win, mamba_win_cs)
 
-mamaba_win_yj <- mamba_inputs %>%
+mamba_win_yj <- mamba_inputs %>%
     select(-location, -all_of(model_list$win_models$cor_cols_win)) %>%
     mutate(across(is_b2b_first:opp_is_b2b_second, factor))
-mamaba_win_yj <- predict(model_list$win_models$pre_proc_yj_win, mamaba_win_yj)
+mamba_win_yj <- predict(model_list$win_models$pre_proc_yj_win, mamba_win_yj)
 
-mamaba_score_cs <- mamba_inputs %>%
-    select(-all_of(model_list$team_models$cor_cols_score)) %>%
+mamba_score_cs <- mamba_inputs %>%
+    select(-all_of(model_list$score_models$cor_cols_score)) %>%
+    mutate(location = if_else(location == "away", 1, 0)) %>%
     mutate(across(location:opp_is_b2b_second, factor))
-mamaba_score_cs <- predict(model_list$team_models$pre_proc_cs_score, mamaba_score_cs)
+mamba_score_cs <- predict(model_list$score_models$pre_proc_cs_score, mamba_score_cs)
 
-mamaba_score_yj <- mamba_inputs %>%
-    select(-all_of(model_list$team_models$cor_cols_score)) %>%
+mamba_score_yj <- mamba_inputs %>%
+    select(-all_of(model_list$score_models$cor_cols_score)) %>%
+    mutate(location = if_else(location == "away", 1, 0)) %>%
     mutate(across(location:opp_is_b2b_second, factor))
-mamaba_score_yj <- predict(model_list$team_models$pre_proc_yj_score, mamaba_score_yj)
+mamba_score_yj <- predict(model_list$score_models$pre_proc_yj_score, mamba_score_yj)
 
 
+# Remove specific elements from win_models and score_models lists
+model_list_pred <- model_list
 
-### left off 3/24 --- function for predictions
+# Remove elements from win_models
+model_list_pred$win_models$cor_cols_win <- NULL
+model_list_pred$win_models$pre_proc_cs_win <- NULL
+model_list_pred$win_models$pre_proc_yj_win <- NULL
 
-
+# Remove elements from score_models
+model_list_pred$score_models$cor_cols_score <- NULL
+model_list_pred$score_models$pre_proc_cs_score <- NULL
+model_list_pred$score_models$pre_proc_yj_score <- NULL
 
 
 #### make predictions ----
 # initialize slate_final
-slate_final <- slate_today %>% select(-c(is_b2b_first:opp_is_b2b_second))
+slate_final <- slate_today %>%
+    select(game_date:opp_team_name, team_spread:over_under) %>%
+    arrange(game_id, location)
 
 # loop through models
-for (model_type in c("win_models", "team_models", "opp_models")) {
-    col_suffix <- ifelse(model_type == "win_models", "_away", "_score")
-    slate_final <- bind_cols(slate_final,
-                             make_predictions(model_type, model_list,
-                                              mamba_input, col_suffix))
+for (model_type in c("win_models", "score_models")) {
+    slate_final <- bind_cols(slate_final, make_predictions(model_type, model_list_pred))
 }
+
+
+
+
+
+### left off 3/30 --- evaluate bets -- align w/ eval file
+
+
+
+
+
+
+
+
 
 moneyline_key <- 0.05781939 # regularization (ridge)
 spread_key <- 4.30365229 # ensemble (lin, reg, svm, nn, xgb)
