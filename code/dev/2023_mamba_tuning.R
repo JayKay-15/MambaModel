@@ -1055,40 +1055,40 @@ test[,-1] <- predict(pre_proc_cs, test[,-1])
 ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 3,
                      verboseIter = T)
 set.seed(214)
-lin_team <- train(team_score ~., data = train,
+lin_score <- train(team_score ~., data = train,
                   method = "lm",
                   metric = "MAE",
                   # preProc = c("center", "scale"),
                   trControl = ctrl)
 
-getTrainPerf(lin_team)
-lin_team
-lin_team$resample
-lin_team$results
-summary(lin_team) # model components
-autoplot(lin_team$finalModel) # viz - ggfortify
-glance(lin_team$finalModel) # entire model - tidymodels
-tidy(lin_team$finalModel) # model components - tidymodels
-augment(lin_team$finalModel) # observations - tidymodels
+getTrainPerf(lin_score)
+lin_score
+lin_score$resample
+lin_score$results
+summary(lin_score) # model components
+autoplot(lin_score$finalModel) # viz - ggfortify
+glance(lin_score$finalModel) # entire model - tidymodels
+tidy(lin_score$finalModel) # model components - tidymodels
+augment(lin_score$finalModel) # observations - tidymodels
 
-saveRDS(lin_team, "../NBAdb/models/trained_models/lin_team_20_23.rds")
-lin_team <- read_rds("../NBAdb/models/trained_models/lin_team_20_23.rds")
+saveRDS(lin_score, "../NBAdb/models/trained_models/lin_score_20_23.rds")
+lin_score <- read_rds("../NBAdb/models/trained_models/lin_score_20_23.rds")
 
 # predictions
-team_pred <- predict(lin_team, test)
+team_pred <- predict(lin_score, test)
 
 # model evaluation
 postResample(pred = team_pred, obs = test$team_score) # caret eval
 lin_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 # variable importance
-importance <- varImp(lin_team, scale = F)
+importance <- varImp(lin_score, scale = F)
 plot(importance)
 
-lin_team_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
+lin_score_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
     arrange(desc(Overall)) %>%
     head(20)
-lin_team_imp
+lin_score_imp
 
 
 # team score ridge regression model ----
@@ -1101,41 +1101,41 @@ grid <- expand.grid(
     lambda = 10^seq(2, -3, by = -.1)
 )
 set.seed(214)
-reg_team <- train(team_score ~., data = train,
+reg_score <- train(team_score ~., data = train,
                   method = "glmnet",
                   metric = "MAE",
                   # preProc = c("center", "scale"),
                   trControl = ctrl,
                   tuneGrid = grid)
 
-getTrainPerf(reg_team)
-reg_team
-reg_team$resample
-reg_team$results
-summary(reg_team) # model components
-autoplot(reg_team$finalModel) # viz - ggfortify
-glance(reg_team$finalModel) # entire model - tidymodels
-tidy(reg_team$finalModel) # model components - tidymodels
-plot(reg_team) # viz
+getTrainPerf(reg_score)
+reg_score
+reg_score$resample
+reg_score$results
+summary(reg_score) # model components
+autoplot(reg_score$finalModel) # viz - ggfortify
+glance(reg_score$finalModel) # entire model - tidymodels
+tidy(reg_score$finalModel) # model components - tidymodels
+plot(reg_score) # viz
 
-saveRDS(reg_team, "../NBAdb/models/trained_models/reg_team_20_23.rds")
-reg_team <- read_rds("../NBAdb/models/trained_models/reg_team_20_23.rds")
+saveRDS(reg_score, "../NBAdb/models/trained_models/reg_score_20_23.rds")
+reg_score <- read_rds("../NBAdb/models/trained_models/reg_score_20_23.rds")
 
 # predictions
-team_pred <- predict(reg_team, test)
+team_pred <- predict(reg_score, test)
 
 # model evaluation
 postResample(pred = team_pred, obs = test$team_score) # caret eval
-reg_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
+reg_score_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 # variable importance
-importance <- varImp(reg_team, scale = F)
+importance <- varImp(reg_score, scale = F)
 plot(importance)
 
-reg_team_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
+reg_score_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
     arrange(desc(Overall)) %>%
     head(20)
-reg_team_imp
+reg_score_imp
 
 
 # team score knn model ----
@@ -1147,26 +1147,26 @@ grid <- expand.grid(
     k = seq(2, 24, 2)
 )
 set.seed(214)
-knn_team <- train(team_score ~., data = train, 
+knn_score <- train(team_score ~., data = train, 
                   method = "knn",
                   metric = "MAE",
                   # preProc = c("center", "scale"),
                   trControl = ctrl,
                   tuneGrid = grid)
 
-getTrainPerf(knn_team)
-knn_team
-knn_team$results
-knn_team$resample
-summary(knn_team) # model components
-plot(knn_team) # viz
+getTrainPerf(knn_score)
+knn_score
+knn_score$results
+knn_score$resample
+summary(knn_score) # model components
+plot(knn_score) # viz
 
 # predictions
-team_pred <- predict(knn_team, test)
+team_pred <- predict(knn_score, test)
 
 # model evaluation
 postResample(pred = team_pred, obs = test$team_score) # caret eval
-knn_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
+knn_score_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 
 # team score random forest model ----
@@ -1180,28 +1180,28 @@ grid <- expand.grid(
     .min.node.size = 1:3
 )
 set.seed(214)
-rf_team <- train(team_score ~., data = train,
+rf_score <- train(team_score ~., data = train,
                  method = "ranger",
                  metric = "MAE",
                  # preProc = c("center", "scale"),
                  trControl = ctrl,
                  tuneGrid = grid)
 
-getTrainPerf(rf_team)
-rf_team
-rf_team$resample
-rf_team$results
-plot(rf_team) # viz
+getTrainPerf(rf_score)
+rf_score
+rf_score$resample
+rf_score$results
+plot(rf_score) # viz
 
-saveRDS(rf_team, "../NBAdb/models/trained_models/rf_team_20_23.rds")
-rf_team <- read_rds("../NBAdb/models/trained_models/rf_team_20_23.rds")
+saveRDS(rf_score, "../NBAdb/models/trained_models/rf_score_20_23.rds")
+rf_score <- read_rds("../NBAdb/models/trained_models/rf_score_20_23.rds")
 
 # predictions
-team_pred <- predict(rf_team, test)
+team_pred <- predict(rf_score, test)
 
 # model evaluation
 postResample(pred = team_pred, obs = test$team_score) # caret eval
-rf_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
+rf_score_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 
 # team score extreme gradient boosting model ----
@@ -1219,38 +1219,38 @@ grid <- expand.grid(
   subsample = c(0.9)
 )
 set.seed(214)
-xgb_team <- train(team_score ~., data = train,
+xgb_score <- train(team_score ~., data = train,
                   method = "xgbTree",
                   metric = "MAE",
                   # preProc = c("center", "scale"),
                   trControl = ctrl,
                   tuneGrid = grid)
 
-getTrainPerf(xgb_team)
-xgb_team
-xgb_team$resample
-xgb_team$results
-summary(xgb_team) # model components
-plot(xgb_team) # viz
+getTrainPerf(xgb_score)
+xgb_score
+xgb_score$resample
+xgb_score$results
+summary(xgb_score) # model components
+plot(xgb_score) # viz
 
-saveRDS(xgb_team, "../NBAdb/models/trained_models/xgb_team_20_23.rds")
-xgb_team <- read_rds("../NBAdb/models/trained_models/xgb_team_20_23.rds")
+saveRDS(xgb_score, "../NBAdb/models/trained_models/xgb_score_20_23.rds")
+xgb_score <- read_rds("../NBAdb/models/trained_models/xgb_score_20_23.rds")
 
 # predictions
-team_pred <- predict(xgb_team, test)
+team_pred <- predict(xgb_score, test)
 
 # model evaluation
 postResample(pred = team_pred, obs = test$team_score) # caret eval
-xgb_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
+xgb_score_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 # variable importance
-importance <- varImp(xgb_team, scale = F)
+importance <- varImp(xgb_score, scale = F)
 plot(importance)
 
-xgb_team_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
+xgb_score_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
     arrange(desc(Overall)) %>%
     head(20)
-xgb_team_imp
+xgb_score_imp
 
 
 # team score glm boost model ----
@@ -1263,29 +1263,29 @@ grid <- expand.grid(
     prune = c("yes", "no")
 )
 set.seed(214)
-glmb_team <- train(team_score ~., data = train,
+glmb_score <- train(team_score ~., data = train,
                   method = "glmboost",
                   metric = "MAE",
                   # preProc = c("center", "scale"),
                   trControl = ctrl,
                   tuneGrid = grid)
 
-getTrainPerf(glmb_team)
-glmb_team
-glmb_team$resample
-glmb_team$results
-summary(glmb_team) # model components
-plot(glmb_team) # viz
+getTrainPerf(glmb_score)
+glmb_score
+glmb_score$resample
+glmb_score$results
+summary(glmb_score) # model components
+plot(glmb_score) # viz
 
-saveRDS(glmb_team, "../NBAdb/models/trained_models/glmb_team_20_23.rds")
-glmb_team <- read_rds("../NBAdb/models/trained_models/glmb_team_20_23.rds")
+saveRDS(glmb_score, "../NBAdb/models/trained_models/glmb_score_20_23.rds")
+glmb_score <- read_rds("../NBAdb/models/trained_models/glmb_score_20_23.rds")
 
 # predictions
-team_pred <- predict(glmb_team, test)
+team_pred <- predict(glmb_score, test)
 
 # model evaluation
 postResample(pred = team_pred, obs = test$team_score) # caret eval
-glmb_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
+glmb_score_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 
 # team score earth model ----
@@ -1298,29 +1298,29 @@ grid <- expand.grid(
   degree = c(1:4)
 )
 set.seed(214)
-mars_team <- train(team_score ~., data = train,
+mars_score <- train(team_score ~., data = train,
                  method = "earth",
                  metric = "MAE",
                  # preProc = c("center", "scale"),
                  trControl = ctrl,
                  tuneGrid = grid)
 
-getTrainPerf(mars_team)
-mars_team
-mars_team$resample
-mars_team$results
-summary(mars_team) # model components
-plot(mars_team) # viz
+getTrainPerf(mars_score)
+mars_score
+mars_score$resample
+mars_score$results
+summary(mars_score) # model components
+plot(mars_score) # viz
 
-saveRDS(mars_team, "../NBAdb/models/trained_models/mars_team_20_23.rds")
-mars_team <- read_rds("../NBAdb/models/trained_models/mars_team_20_23.rds")
+saveRDS(mars_score, "../NBAdb/models/trained_models/mars_score_20_23.rds")
+mars_score <- read_rds("../NBAdb/models/trained_models/mars_score_20_23.rds")
 
 # predictions
-team_pred <- predict(mars_team, test)
+team_pred <- predict(mars_score, test)
 
 # model evaluation
 postResample(pred = team_pred, obs = test$team_score) # caret eval
-mars_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
+mars_score_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 
 # normalize features
@@ -1349,7 +1349,7 @@ grid <- expand.grid(
   C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
 )
 set.seed(214)
-svm_team <- train(team_score ~., data = train,
+svm_score <- train(team_score ~., data = train,
                   method = "svmRadial",
                   metric = "MAE",
                   # preProc = c("center", "scale", "YeoJohnson"),
@@ -1360,29 +1360,29 @@ svm_team <- train(team_score ~., data = train,
 #     C = c(0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.95)
 # )
 # set.seed(214)
-# svm_team <- train(team_score ~., data = train,
+# svm_score <- train(team_score ~., data = train,
 #                   method = "svmLinear",
 #                   metric = "MAE",
 #                   # preProc = c("center", "scale", "YeoJohnson"),
 #                   trControl = ctrl,
 #                   tuneGrid = grid)
 
-getTrainPerf(svm_team)
-svm_team
-svm_team$resample
-svm_team$results
-summary(svm_team) # model components
-plot(svm_team) # viz
+getTrainPerf(svm_score)
+svm_score
+svm_score$resample
+svm_score$results
+summary(svm_score) # model components
+plot(svm_score) # viz
 
-saveRDS(svm_team, "../NBAdb/models/trained_models/svm_team_20_23.rds")
-svm_team <- read_rds("../NBAdb/models/trained_models/svm_team_20_23.rds")
+saveRDS(svm_score, "../NBAdb/models/trained_models/svm_score_20_23.rds")
+svm_score <- read_rds("../NBAdb/models/trained_models/svm_score_20_23.rds")
 
 # predictions
-team_pred <- predict(svm_team, test)
+team_pred <- predict(svm_score, test)
 
 # model evaluation
 postResample(pred = team_pred, obs = test$team_score) # caret eval
-svm_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
+svm_score_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 
 # team score neural net model ----
@@ -1395,7 +1395,7 @@ grid <- expand.grid(
   size = c(1, 2, 3, 4)
 )
 set.seed(214)
-nn_team <- train(team_score ~., data = train,
+nn_score <- train(team_score ~., data = train,
                  method = "nnet",
                  metric = "MAE",
                  # preProc = c("center", "scale", "YeoJohnson"),
@@ -1410,7 +1410,7 @@ nn_team <- train(team_score ~., data = train,
 #     bag = c(FALSE, TRUE)
 # )
 # set.seed(214)
-# nn_team <- train(team_score ~., data = train,
+# nn_score <- train(team_score ~., data = train,
 #                 method = "avNNet",
 #                 metric = "MAE",
 #                 preProc = c("center", "scale", "YeoJohnson"),
@@ -1424,7 +1424,7 @@ nn_team <- train(team_score ~., data = train,
 #   size = c(1, 2, 3, 4)
 # )
 # set.seed(214)
-# nn_team <- train(team_score ~., data = train,
+# nn_score <- train(team_score ~., data = train,
 #                 method = "pcaNNet",
 #                 metric = "MAE",
 #                 # preProc = c("center", "scale", "YeoJohnson"),
@@ -1433,31 +1433,31 @@ nn_team <- train(team_score ~., data = train,
 #                 maxit = 1000,
 #                 linout = 1)
 
-getTrainPerf(nn_team)
-nn_team
-nn_team$resample
-nn_team$results
-summary(nn_team) # model components
-plot(nn_team) # viz
+getTrainPerf(nn_score)
+nn_score
+nn_score$resample
+nn_score$results
+summary(nn_score) # model components
+plot(nn_score) # viz
 
-saveRDS(nn_team, "../NBAdb/models/trained_models/nn_team_20_23.rds")
-nn_team <- read_rds("../NBAdb/models/trained_models/nn_team_20_23.rds")
+saveRDS(nn_score, "../NBAdb/models/trained_models/nn_score_20_23.rds")
+nn_score <- read_rds("../NBAdb/models/trained_models/nn_score_20_23.rds")
 
 # predictions
-team_pred <- predict(nn_team, test)
+team_pred <- predict(nn_score, test)
 
 # model evaluation
 postResample(pred = team_pred, obs = test$team_score) # caret eval
-nn_team_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
+nn_score_metrics <- postResample(pred = team_pred, obs = test$team_score)[1]
 
 # variable importance
-importance <- varImp(nn_team, scale = F)
+importance <- varImp(nn_score, scale = F)
 plot(importance)
 
-nn_team_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
+nn_score_imp <- rownames_to_column(importance[["importance"]], "Var") %>%
   arrange(desc(Overall)) %>%
   head(20)
-nn_team_imp
+nn_score_imp
 
 
 
