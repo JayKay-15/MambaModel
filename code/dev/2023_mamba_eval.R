@@ -38,7 +38,7 @@ model_outputs <- nba_final %>%
     mutate(location = if_else(location == 1, "away", "home"))
 
 
-# team winner models ----
+##### team winner models ----
 nba_final_test <- nba_final %>%
     filter(season_year == 2024 & location == 1) %>%
     select(team_winner,
@@ -181,7 +181,7 @@ nba_final_win_outputs <- nba_final_win_outputs %>%
 
 
 
-# team score models ----
+##### team score models ----
 nba_final_test <- nba_final %>%
     filter(season_year == 2024) %>%
     select(team_score, location,
@@ -199,10 +199,10 @@ test[,-1] <- predict(pre_proc_cs_score, test[,-1])
 
 
 # team score linear regression model ----
-lin_team <- read_rds("../NBAdb/models/trained_models/lin_team_20_23.rds")
+lin_score <- read_rds("../NBAdb/models/trained_models/lin_score_20_23.rds")
 
 # predictions
-team_pred <- predict(lin_team, test)
+team_pred <- predict(lin_score, test)
 postResample(pred = team_pred, obs = test$team_score)
 
 team_pred <- data.frame(team_pred)
@@ -214,10 +214,10 @@ nba_final_ts_outputs <- nba_final_ts_outputs %>%
 
 
 # team score ridge regression model ----
-reg_team <- read_rds("../NBAdb/models/trained_models/reg_team_20_23.rds")
+reg_score <- read_rds("../NBAdb/models/trained_models/reg_score_20_23.rds")
 
 # predictions
-team_pred <- predict(reg_team, test)
+team_pred <- predict(reg_score, test)
 postResample(pred = team_pred, obs = test$team_score)
 
 team_pred <- data.frame(team_pred)
@@ -229,11 +229,11 @@ nba_final_ts_outputs <- nba_final_ts_outputs %>%
 
 
 # team score random forest model ----
-rf_team <- read_rds("../NBAdb/models/trained_models/rf_team_20_23.rds")
+rf_score <- read_rds("../NBAdb/models/trained_models/rf_score_20_23.rds")
 
 
 # predictions
-team_pred <- predict(rf_team, test)
+team_pred <- predict(rf_score, test)
 postResample(pred = team_pred, obs = test$team_score)
 
 team_pred <- data.frame(team_pred)
@@ -245,10 +245,10 @@ nba_final_ts_outputs <- nba_final_ts_outputs %>%
 
 
 # team score extreme gradient boosting model ----
-xgb_team <- read_rds("../NBAdb/models/trained_models/xgb_team_20_23.rds")
+xgb_score <- read_rds("../NBAdb/models/trained_models/xgb_score_20_23.rds")
 
 # predictions
-team_pred <- predict(xgb_team, test)
+team_pred <- predict(xgb_score, test)
 postResample(pred = team_pred, obs = test$team_score)
 
 team_pred <- data.frame(team_pred)
@@ -260,10 +260,10 @@ nba_final_ts_outputs <- nba_final_ts_outputs %>%
 
 
 # team score boosted generalized linear model ----
-glmb_team <- read_rds("../NBAdb/models/trained_models/glmb_team_20_23.rds")
+glmb_score <- read_rds("../NBAdb/models/trained_models/glmb_score_20_23.rds")
 
 # predictions
-team_pred <- predict(glmb_team, test)
+team_pred <- predict(glmb_score, test)
 postResample(pred = team_pred, obs = test$team_score)
 
 team_pred <- data.frame(team_pred)
@@ -275,10 +275,10 @@ nba_final_ts_outputs <- nba_final_ts_outputs %>%
 
 
 # team score earth model ----
-mars_team <- read_rds("../NBAdb/models/trained_models/mars_team_20_23.rds")
+mars_score <- read_rds("../NBAdb/models/trained_models/mars_score_20_23.rds")
 
 # predictions
-team_pred <- predict(mars_team, test)
+team_pred <- predict(mars_score, test)
 postResample(pred = team_pred, obs = test$team_score)
 
 team_pred <- data.frame(team_pred) %>% rename(team_pred = y)
@@ -299,10 +299,10 @@ test <- nba_final_test %>%
 test[,-1] <- predict(pre_proc_yj_score, test[,-1])
 
 # team score support vector machines model ----
-svm_team <- read_rds("../NBAdb/models/trained_models/svm_team_20_23.rds")
+svm_score <- read_rds("../NBAdb/models/trained_models/svm_score_20_23.rds")
 
 # predictions
-team_pred <- predict(svm_team, test)
+team_pred <- predict(svm_score, test)
 postResample(pred = team_pred, obs = test$team_score)
 
 team_pred <- data.frame(team_pred)
@@ -314,10 +314,10 @@ nba_final_ts_outputs <- nba_final_ts_outputs %>%
 
 
 # team score neural net model ----
-nn_team <- read_rds("../NBAdb/models/trained_models/nn_team_20_23.rds")
+nn_score <- read_rds("../NBAdb/models/trained_models/nn_score_20_23.rds")
 
 # predictions
-team_pred <- predict(nn_team, test)
+team_pred <- predict(nn_score, test)
 postResample(pred = team_pred, obs = test$team_score)
 
 team_pred <- data.frame(team_pred)
