@@ -509,7 +509,7 @@ nba_schedule_current <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"),
     mutate(game_date = as_date(game_date, origin ="1970-01-01"))
 
 # get current odds
-book_name <- "BetMGM"
+book_name <- "DraftKings"
 dates <- today()
 today_odds <- get_odds(book_name, dates)
 
@@ -531,6 +531,9 @@ mamba_inputs <- mamba_today %>%
 #### prepare for predictions ----
 directory_path <- "../NBAdb/models/trained_models/"
 model_list <- invisible(load_model_rds_files(directory_path))
+
+model_list$win_models <- model_list$win_models[c(3,8,9,11,2,4,10,5,6,7,1)]
+model_list$score_models <- model_list$score_models[c(3,8,9,11,2,4,10,5,6,7,1)]
 
 #### prepare model inputs
 mamba_win_cs <- mamba_inputs %>%
@@ -573,7 +576,8 @@ model_list_pred$score_models$pre_proc_yj_score <- NULL
 #### make predictions ----
 # initialize slate_final
 slate_final <- slate_today %>%
-    select(game_date:opp_team_name, team_spread:over_under) %>%
+    select(game_date:opp_team_name, team_spread:team_implied_prob) %>%
+    mutate(opp_implied_prob = 1 - team_implied_prob) %>%
     arrange(game_id, location)
 
 # loop through models
@@ -582,7 +586,8 @@ for (model_type in c("win_models", "score_models")) {
 }
 
 
-
+# clear environment ----
+rm(list=ls()[! ls() %in% c("model_outputs", "slate_final")])
 
 
 ### left off 3/30 --- evaluate bets -- align w/ eval file
