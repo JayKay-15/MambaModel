@@ -347,6 +347,7 @@ model_outputs <- model_outputs %>%
 # clear environment ----
 rm(list=ls()[! ls() %in% c("model_outputs")])
 
+
 #### function to created results book ---- combined over/under
 process_results_book <- function(model_outputs) {
     
@@ -586,9 +587,9 @@ model_viz <- function(models_edge, models_result, models_key) {
     
 }
 
-models_edge <- c("svm_win_edge", "xgb_spread_edge", "glmb_over_under_edge")
-models_result <- c("svm_win_result", "xgb_spread_result", "glmb_over_under_result")
-models_key <- c(0.1222, 2.7, 1.3)
+models_edge <- c("mars_win_edge", "mars_spread_edge", "glmb_over_under_edge")
+models_result <- c("mars_win_result", "mars_spread_result", "glmb_over_under_result")
+models_key <- c(0.05750776, 1.24326434, 1.29048131)
 
 model_viz(models_edge, models_result, models_key)
 
@@ -627,12 +628,12 @@ process_results_book <- function(model_outputs) {
         )
     
     win_columns <- names(results_book %>% select(ends_with("win_team")))
-    team_columns <- names(results_book %>% select(ends_with("_team_score")))
-    opp_columns <- names(results_book %>% select(ends_with("_opp_score")))
+    team_columns <- names(results_book %>% select(ends_with("_score_team")))
+    opp_columns <- names(results_book %>% select(ends_with("_score_opp")))
     
     
     for (i in seq_along(win_columns)) {
-        # over/under each line -- need to filter one out
+        # over/under each line
         model_edges <- results_book %>%
             mutate(
                 win_edge = .data[[win_columns[[i]]]] - team_implied_prob,
