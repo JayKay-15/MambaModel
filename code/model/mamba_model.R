@@ -516,7 +516,8 @@ today_odds <- get_odds(book_name, dates)
 # today's slate
 slate_today <- nba_schedule_current %>%
     filter(game_date %in% c(dates)) %>%
-    left_join(today_odds)
+    left_join(today_odds) %>%
+    drop_na()
 
 
 #### prepare ytd data ----
@@ -589,6 +590,8 @@ for (model_type in c("win_models", "score_models")) {
 # clear environment ----
 rm(list=ls()[! ls() %in% c("model_outputs", "slate_final")])
 
+write_csv(slate_final, "/Users/jesse/Desktop/slate_final.csv")
+write_csv(model_outputs, "/Users/jesse/Desktop/model_outputs.csv")
 
 ### left off 3/30 --- evaluate bets -- align w/ eval file
 
