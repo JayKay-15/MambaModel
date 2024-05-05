@@ -2,7 +2,9 @@
 
 library(tidyverse)
 library(data.table)
-library(nbastatR)
+library(janitor)
+library(RSQLite)
+library(DBI)
 
 options(scipen = 999999)
 
@@ -15,7 +17,6 @@ mamba_lag_long <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"),
     mutate(game_date = as_date(game_date, origin ="1970-01-01"))
 
 slate_final <- read_csv("/Users/jesse/Desktop/slate_final.csv")
-
 
 #### This should match nba_final in eval file
 mamba_long_odds <- mamba_lag_long %>%
