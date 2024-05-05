@@ -3,6 +3,7 @@ library(data.table)
 library(janitor)
 library(RSQLite)
 library(DBI)
+# devtools::install_github("d-edison/theoddsapi")
 library(theoddsapi)
 
 options(scipen = 999999)
