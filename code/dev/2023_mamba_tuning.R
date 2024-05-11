@@ -122,11 +122,11 @@ opp_cor_cols <- gsub("team_", "opp_", cor_cols)
 cor_cols <- c(team_cor_cols, opp_cor_cols)
 
 # filter highly correlated features
-cor_df_new <- cor_df %>% select(-all_of(cor_cols))
+cor_df_new <- cor_df %>% select(-all_of(team_cor_cols))
 
 # check new set of features for correlation
 cor_mx_new <- cor(cor_df_new)
-findCorrelation(cor_mx_new, cutoff = .5)
+findCorrelation(cor_mx_new, cutoff = .4)
 summary(cor_mx_new[upper.tri(cor_mx_new)])
 
 # correlations - win
