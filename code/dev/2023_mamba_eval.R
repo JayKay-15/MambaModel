@@ -34,7 +34,7 @@ nba_final_ts_outputs <- nba_final %>%
 
 model_outputs <- nba_final %>%
     filter(season_year == 2024) %>%
-    select(season_year:opp_implied_prob) %>%
+    select(season_year) %>%
     mutate(location = if_else(location == 1, "away", "home"))
 
 
