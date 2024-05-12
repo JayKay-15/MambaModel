@@ -40,13 +40,13 @@ registerDoSEQ()
 options(scipen = 999999)
 # Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2)
 
-saveRDS(pre_proc_cs_score, "../NBAdb/models/trained_models/pre_proc_cs_score.rds")
-saveRDS(pre_proc_yj_score, "../NBAdb/models/trained_models/pre_proc_yj_score.rds")
-saveRDS(pre_proc_cs_win, "../NBAdb/models/trained_models/pre_proc_cs_win.rds")
-saveRDS(pre_proc_yj_win, "../NBAdb/models/trained_models/pre_proc_yj_win.rds")
-
-saveRDS(cor_cols_win, "../NBAdb/models/trained_models/cor_cols_win.rds")
-saveRDS(cor_cols_score, "../NBAdb/models/trained_models/cor_cols_score.rds")
+# saveRDS(pre_proc_cs_score, "../NBAdb/models/trained_models/pre_proc_cs_score.rds")
+# saveRDS(pre_proc_yj_score, "../NBAdb/models/trained_models/pre_proc_yj_score.rds")
+# saveRDS(pre_proc_cs_win, "../NBAdb/models/trained_models/pre_proc_cs_win.rds")
+# saveRDS(pre_proc_yj_win, "../NBAdb/models/trained_models/pre_proc_yj_win.rds")
+# 
+# saveRDS(cor_cols_win, "../NBAdb/models/trained_models/cor_cols_win.rds")
+# saveRDS(cor_cols_score, "../NBAdb/models/trained_models/cor_cols_score.rds")
 
 # pull all historical data
 nba_final <- tbl(dbConnect(SQLite(), "../nba_sql_db/nba_db"), "mamba_long_odds_post") %>%
