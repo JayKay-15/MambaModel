@@ -6,6 +6,11 @@ library(DBI) # db
 library(caret) # model training
 library(tidymodels) # model eval
 
+install.packages("kernlab")
+install.packages("ranger")
+install.packages("mboost")
+install.packages("earth")
+
 options(scipen = 999999)
 # Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2)
 
@@ -34,7 +39,7 @@ nba_final_ts_outputs <- nba_final %>%
 
 model_outputs <- nba_final %>%
     filter(season_year == 2024) %>%
-    select(season_year) %>%
+    select(season_year:opp_implied_prob) %>%
     mutate(location = if_else(location == 1, "away", "home"))
 
 
