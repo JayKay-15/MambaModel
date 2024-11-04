@@ -104,16 +104,21 @@ player_tbl_filtered <- player_tbl %>%
     ) %>%
     select(-c(
         fg_pct, fg3_pct, ft_pct, dd2, td3,
-        min_sec:pie,
+        min_sec:poss,
         fgm_pg:pct_pts,
         opp_pts_off_tov:opp_pts_paint,
         pct_fga_2pt:pct_uast_fgm
     ))
 
 
-
-# 0.5*((fga + 0.4*fta – 1.07*(oreb/(oreb + opp_dreb))*(fga – fgm) + tov) + (opp_fga + 0.4*(opp_fta) – 1.07*(opp_oreb)/(opp_oreb + dreb))*(opp_fga – opp_fgm) + opp_tov))
-
+player_agg <- player_tbl_filtered %>%
+    group_by(season_year, player_id, player_name, team_id, team_name) %>%
+    summarize(
+        across(min:ast_3pm, sum),
+        game_count = n(),
+        .groups = "drop"
+    ) %>%
+    arrange(season_year, player_name)
 
 
 
