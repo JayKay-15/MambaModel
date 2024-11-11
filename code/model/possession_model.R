@@ -12,6 +12,19 @@ library(janitor)
 #     ))
 
 pbp <- readRDS("./pbp_df.rds")
+
+pbp <- pbp %>%
+    mutate(
+        season_year = case_when(
+            substr(game_id, 1, 5) == "00218" ~ 2019,
+            substr(game_id, 1, 5) == "00219" ~ 2020,
+            substr(game_id, 1, 5) == "00220" ~ 2021,
+            substr(game_id, 1, 5) == "00221" ~ 2022,
+            substr(game_id, 1, 5) == "00222" ~ 2023,
+            TRUE ~ NA_integer_  # Handles cases not in the specified range
+        )
+    )
+
 pbp <- pbp %>%
     filter(game_id %in% c(
         "0021800001", "0021800002", "0021800003", "0021800004"
