@@ -62,92 +62,153 @@ pbp_df_types <- pbp_df %>%
 
 
 
-# all possessions - https://github.com/ramirobentes/NBA-in-R/blob/master/all_possessions
 
+# Vectorized convert_to_seconds
 convert_to_seconds <- function(time_str) {
-    time_parts <- strsplit(time_str, ":")[[1]]
-    minutes <- as.numeric(time_parts[1])
-    seconds <- as.numeric(time_parts[2])
+    time_parts <- do.call(rbind, strsplit(time_str, ":"))
+    minutes <- as.numeric(time_parts[, 1])
+    seconds <- as.numeric(time_parts[, 2])
     
     # Total seconds remaining
-    total_seconds <- (minutes * 60) + seconds
-    return(total_seconds)
+    return((minutes * 60) + seconds)
 }
 
-# Function to calculate seconds passed in the game
+# Vectorized seconds_passed
 seconds_passed <- function(time_str, period) {
-    # Convert time_str to seconds remaining in the period
-    time_parts <- strsplit(time_str, ":")[[1]]
-    minutes <- as.numeric(time_parts[1])
-    seconds <- as.numeric(time_parts[2])
-    
-    # Total seconds in a 12-minute period
     period_seconds <- 720
+    time_remaining <- convert_to_seconds(time_str)
+    secs_passed_current_period <- ifelse(period %in% 1:4, period_seconds - time_remaining, 300 - time_remaining)
     
-    # Calculate seconds passed in the current period
-    seconds_remaining <- (minutes * 60) + seconds
-    seconds_in_current_period <- period_seconds - seconds_remaining
-    
-    # Calculate total seconds passed in previous periods
-    previous_periods <- (as.numeric(period) - 1)
-    seconds_in_previous_periods <- previous_periods * period_seconds
+    # Calculate seconds passed in previous periods
+    seconds_in_previous_periods <- (as.numeric(period) - 1) * period_seconds
     
     # Total seconds passed in the game
-    total_seconds_passed <- seconds_in_previous_periods + seconds_in_current_period
-    return(total_seconds_passed)
+    return(seconds_in_previous_periods + secs_passed_current_period)
 }
 
-# https://github.com/ramirobentes/NBA-in-R/blob/04ef36bb6da424ee808209875534ad77198319f3/2016_17/pbp_lineups.R#L183
-
-# initial possessions
+# Initial possessions with optimized code
 poss_initial <- pbp %>%
+    distinct() %>%
+    group_by(game_id) %>%
     mutate(
-        home_team = slice(pbp, 2)$player1_team_id,
-        away_team = slice(pbp, 2)$player2_team_id
+        home_team = nth(player1_team_id, 2),
+        away_team = nth(player2_team_id, 2)
     ) %>%
-    filter(eventmsgtype != 18) %>%
-    rowwise() %>%
+    ungroup() %>%
     mutate(
         secs_left_quarter = convert_to_seconds(pctimestring),
-        secs_passed_quarter = if_else(period %in% c(1:4), 720 - secs_left_quarter, 300 - secs_left_quarter),  
+        secs_passed_quarter = if_else(period %in% 1:4, 720 - secs_left_quarter, 300 - secs_left_quarter),
         secs_passed_game = seconds_passed(pctimestring, period),
-        possession = case_when(eventmsgtype %in% c(1, 2, 5) ~ 1,
-                               eventmsgtype == 3 & eventmsgactiontype %in% c(10, 12, 15) ~ 1,
-                               TRUE ~ 0)
+        possession = case_when(
+            eventmsgtype %in% c(1, 2, 5) ~ 1,
+            eventmsgtype == 3 & eventmsgactiontype %in% c(10, 12, 15) ~ 1,
+            TRUE ~ 0
+        )
     ) %>%
     ungroup()
 
- # change end of possession to ft of and one
+# Change end of possession to ft of and one
 fgs_and1 <- poss_initial %>%
-    distinct() %>%
-    filter(eventmsgtype == 1 | (eventmsgtype == 6 & !eventmsgactiontype %in% c(4, 10, 11, 12, 16, 18)) | (eventmsgtype == 3 & eventmsgactiontype == 10)) %>%
+    filter(
+        eventmsgtype == 1 |
+        (eventmsgtype == 6 & !eventmsgactiontype %in% c(4, 10, 11, 12, 16, 18)) |
+        (eventmsgtype == 3 & eventmsgactiontype == 10)
+    ) %>%
     group_by(game_id, secs_passed_game) %>%
-    filter(eventmsgtype == 1 & lead(eventmsgtype) == 6 & player1_team_id != lead(player1_team_id)) %>%
+    filter(
+        eventmsgtype == 1 &
+        lead(eventmsgtype) == 6 &
+            player1_team_id != lead(player1_team_id)
+    ) %>%
     ungroup() %>%
     mutate(possession = 0)
 
+# Use left join for conditional updating of the possession column
 poss_initial_2 <- poss_initial %>%
-    rows_update(fgs_and1, by = c("game_id", "eventnum"))
+    left_join(fgs_and1 %>% select(game_id, eventnum, possession), by = c("game_id", "eventnum")) %>%
+    mutate(possession = coalesce(possession.y, possession.x)) %>%
+    select(-possession.y, -possession.x)
 
-# identify and change consecutive possessions
+# Identify and change consecutive possessions
 change_consec <- poss_initial_2 %>%
     distinct() %>%
-    filter(possession == 1 | (eventmsgtype == 6 & eventmsgactiontype == 30)) %>%
+    filter(
+        possession == 1 |
+        (eventmsgtype == 6 & eventmsgactiontype == 30)
+    ) %>%
     group_by(game_id, period) %>%
-    filter(possession == lead(possession) & player1_team_id == lead(player1_team_id)) %>%
+    filter(
+        possession == lead(possession) &
+        player1_team_id == lead(player1_team_id)
+    ) %>%
     ungroup() %>%
-    mutate(possession = 0) %>%
-    select(game_id, eventnum, possession)
+    mutate(possession = 0)
 
-# replace in data
 poss_non_consec <- poss_initial_2 %>%
-    rows_update(change_consec, by = c("game_id","eventnum"))
+    left_join(change_consec %>% select(game_id, eventnum, possession), by = c("game_id", "eventnum")) %>%
+    mutate(possession = coalesce(possession.y, possession.x)) %>%
+    select(-possession.y, -possession.x)
 
+# Find the start of the possession
 start_possessions <- poss_non_consec %>%
     mutate(
         start_poss = case_when(possession == 1 & eventmsgtype != 4 ~ lag(secs_left_quarter))
     ) %>%
     select(game_id:period, pctimestring, possession, start_poss, homedescription:visitordescription)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# all possessions - https://github.com/ramirobentes/NBA-in-R/blob/master/all_possessions
+
+# https://github.com/ramirobentes/NBA-in-R/blob/04ef36bb6da424ee808209875534ad77198319f3/2016_17/pbp_lineups.R#L183
+
+
+
+
+# # change end of possession to ft of and one
+# fgs_and1 <- poss_initial %>%
+#     filter(eventmsgtype == 1 | (eventmsgtype == 6 & !eventmsgactiontype %in% c(4, 10, 11, 12, 16, 18)) | (eventmsgtype == 3 & eventmsgactiontype == 10)) %>%
+#     group_by(game_id, secs_passed_game) %>%
+#     filter(eventmsgtype == 1 & lead(eventmsgtype) == 6 & player1_team_id != lead(player1_team_id)) %>%
+#     ungroup() %>%
+#     mutate(possession = 0)
+# 
+# poss_initial_2 <- poss_initial %>%
+#     rows_update(fgs_and1, by = c("game_id", "eventnum"))
+
+# # identify and change consecutive possessions
+# change_consec <- poss_initial_2 %>%
+#     distinct() %>%
+#     filter(possession == 1 | (eventmsgtype == 6 & eventmsgactiontype == 30)) %>%
+#     group_by(game_id, period) %>%
+#     filter(possession == lead(possession) & player1_team_id == lead(player1_team_id)) %>%
+#     ungroup() %>%
+#     mutate(possession = 0) %>%
+#     select(game_id, eventnum, possession)
+# 
+# # replace in data
+# poss_non_consec <- poss_initial_2 %>%
+#     rows_update(change_consec, by = c("game_id","eventnum"))
+
+# start_possessions <- poss_non_consec %>%
+#     mutate(
+#         start_poss = case_when(possession == 1 & eventmsgtype != 4 ~ lag(secs_left_quarter))
+#     ) %>%
+#     select(game_id:period, pctimestring, possession, start_poss, homedescription:visitordescription)
 
 
 
