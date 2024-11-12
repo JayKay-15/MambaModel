@@ -46,7 +46,7 @@ pbp_df_types <- pbp_df %>%
 # eventmsgtype 3 & 13 = 1 of 3 common foul
 # eventmsgtype 3 & 14 = 2 of 3 common foul
 # eventmsgtype 3 & 15 = 3 of 3 common foul *
-# eventmsgtype 3 & 16 = 1 of 1 tech *
+# eventmsgtype 3 & 16 = 1 of 1 tech * doesn't change poss
 # eventmsgtype 3 & 18 = 1 of 2 flagrant
 # eventmsgtype 3 & 19 = 2 of 2 flagrant *
 # eventmsgtype 3 & 20 = 1 of 1 flagrant *
@@ -158,17 +158,44 @@ start_possessions <- poss_non_consec %>%
 
 
 
+game_poss <- poss_non_consec %>%
+    filter(game_id == "0022201216" & period == 3) %>%
+    select(game_id:period, pctimestring, possession, player1_team_id, homedescription:visitordescription) %>%
+    group_by(player1_team_id) %>%
+    summarize(sum(possession))
+
+game_poss_count <- poss_non_consec %>%
+    filter(season_year == 2023) %>%
+    select(game_id:period, pctimestring, possession, player1_team_id, homedescription:visitordescription) %>%
+    group_by(player1_team_id) %>%
+    summarize(sum(possession))
+
+game_events <- poss_non_consec %>%
+    filter(game_id == "0022201216") %>%
+    group_by(eventmsgtype) %>%
+    summarize(sum(possession))
 
 
 
+game_poss <- poss_non_consec %>%
+    filter(game_id == "0022200060" & period == 1) %>%
+    select(game_id:period, pctimestring, possession, player1_team_id, homedescription:visitordescription)
 
 
+game_poss_count <- poss_non_consec %>%
+    filter(season_year == 2023 & eventmsgtype == 3 & eventmsgactiontype == 19) %>%
+    select(game_id:period, pctimestring, possession, player1_team_id, homedescription:visitordescription) %>%
+    group_by(player1_team_id) %>%
+    summarize(sum(possession))
+
+game_poss_count <- poss_non_consec %>%
+    filter(season_year == 2023 & eventmsgtype == 6 & !eventmsgactiontype %in% c(1)) %>%
+    select(game_id:period, pctimestring, possession, player1_team_id, homedescription:visitordescription)
 
 
+# https://squared2020.com/2017/07/10/analyzing-nba-possession-models/#:~:text=A%20possession%20is%20the%20number,in%20the%20number%20of%20Turnovers.
 
-
-
-
+# https://www.pbpstats.com/totals/nba/team?Season=2022-23&SeasonType=Regular%2BSeason&StartType=All&GroupBy=Season
 
 
 
