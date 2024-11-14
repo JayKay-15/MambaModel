@@ -310,3 +310,141 @@ lineup_game <- lineup_game %>%
             TRUE ~ NA_character_
         )
     )
+
+
+
+
+
+missing_starters <- tribble(
+    ~game_id,      ~period,      ~team_player,      ~name_player,
+    "0022200025",            5,           "MIN",  "Jaden McDaniels",
+    "0022200039",            5,           "WAS",     "Delon Wright",
+    "0022200040",            5,           "UTA",      "Mike Conley",
+    "0022200072",            5,           "BOS",       "Al Horford",
+    "0022200117",            5,           "NOP",    "Naji Marshall",
+    "0022200117",            5,           "LAL",    "Austin Reaves",
+    "0022200325",            5,           "DET",   "Isaiah Stewart",
+    "0022200440",            5,           "DAL",  "Tim Hardaway Jr.",
+    "0022200519",            5,           "CHI",       "Zach LaVine",
+    "0022200659",            5,           "TOR",    "Gary Trent Jr.",
+    "0022200748",            5,           "SAS",  "Keita Bates-Diop",
+    "0022200758",            5,           "SAC",   "Harrison Barnes",
+    "0022200892",            5,           "OKC",    "Jalen Williams",
+    "0022201007",            5,           "MIA",         "Max Strus",
+    "0022201194",            5,           "NOP",       "CJ McCollum",
+    "0022201205",            5,           "ATL",        "Saddiq Bey",
+    "0022100041",            5,           "CHA",    "Gordon Hayward",
+    "0022100291",            6,           "LAL",        "Malik Monk",
+    "0022100353",            5,           "PHI",       "Danny Green",
+    "0022100413",            5,           "BKN",   "Kessler Edwards",
+    "0022100688",            3,           "POR",  "Robert Covington",
+    "0022100860",            5,           "OKC",     "Darius Bazley",
+    "0022100967",            5,           "NOP",        "Tony Snell",
+    "0022000023",            5,           "DET",      "Delon Wright",
+    "0022000100",            5,           "IND",    "Justin Holiday",
+    "0022000120",            5,           "DEN",       "Gary Harris",
+    "0022000440",            5,           "MIN",   "Anthony Edwards",
+    "0022000465",            5,           "NOP",        "Lonzo Ball",
+    "0022000485",            1,           "DAL", "Dorian Finney-Smith",
+    "0022000637",            5,           "CHI",        "Coby White",
+    "0022000645",            5,           "IND",    "T.J. McConnell",
+    "0022001012",            5,           "WAS",         "Raul Neto",
+    "0022001064",            5,           "CHA",   "Jalen McDaniels",
+    "0021900023",            5,           "DEN",      "Malik Beasley",
+    "0021900120",            5,           "MIN",    "Treveon Graham",
+    "0021900272",            5,           "ATL",   "De'Andre Hunter",
+    "0021900409",            5,           "WAS",         "Ish Smith",
+    "0021900502",            5,           "GSW",        "Damion Lee",
+    "0021900550",            5,           "OKC", "Terrance Ferguson",
+    "0021900563",            5,           "DET",        "Tony Snell",
+    "0021900696",            5,           "SAC",   "Harrison Barnes",
+    "0021900787",            5,           "ATL",   "De'Andre Hunter",
+    "0021900892",            5,           "HOU",       "Eric Gordon",
+    "0021901281",            6,           "DEN",      "Monte Morris",
+    "0021800143",            6,           "CHI",    "Justin Holiday",
+    "0021800143",            6,           "NYK",       "Noah Vonleh",
+    "0021800216",            5,           "BOS", "Marcus Morris Sr.",
+    "0021800276",            3,           "DEN","Juancho Hernangomez",
+    "0021800371",            5,           "BKN",        "Joe Harris",
+    "0021800565",            5,           "HOU",       "P.J. Tucker",
+    "0021800619",            5,           "OKC", "Terrance Ferguson",
+    "0021800881",            5,           "UTA",        "Joe Ingles",
+    "0021801070",            5,           "MEM",     "Bruno Caboclo",
+    "0021801132",            5,           "GSW",    "Andre Iguodala",
+    "0021801229",            5,           "UTA",   "Tyler Cavanaugh")
+
+
+corrections <- tribble(
+    ~game_id,     ~number_event, ~msg_type, ~act_type,           ~description,
+    22200094,               380,         3,        16,           "[PHX 93-88] Lee Free Throw Technical (5 PTS)",
+    22201142,               437,         6,         3,           "[OKC] Jay Williams Foul: Loose Ball (2 PF) (2 FTA) (C Kirkland)",
+    22201218,               448,         6,         1,           "[CHA] Bouknight Foul: Personal (3 PF) (2 FTA) (K Cutler)",
+    22200583,               420,         6,         6,           "[MIL] Antetokounmpo Foul: Away From Play (3 PF) (1 FTA) (T Maddox)",
+    22200583,               421,         3,        10,           "[CHA] Plumlee Free Throw 1 of 1 Missed")
+
+corrections <- tribble(
+    ~game_id,     ~clock,   ~secs_passed_game, ~number_event, ~msg_type, ~act_type,                                              ~description,
+    22100295,    "04:26",                1894,           283,         6,         2,    "[ORL] Lopez Foul: Shooting (3 PF) (1 FTA) (J Capers)",
+    22100199,    "04:39",                1881,           271,         6,         1,           "[CLE] Wade Foul: Personal (3 PF) (T Brothers)",
+    22100249,    "09:18",                1602,           265,         3,        18,         "[DET] Jackson Free Throw Flagrant 1 of 2 Missed",
+    22100249,    "09:18",                1602,           267,         3,        19,  "[DET 79-67] Jackson Free Throw Flagrant 2 of 2 (5 PTS)",
+    22100512,  "00:20.8",              2859.2,           473,         6,         1,            "[NYK] Burks Foul: Personal (4 PF) (M Boland)")
+
+corrections <- tribble(
+    ~game_id,     ~clock,   ~secs_passed_game,  ~period, ~number_event, ~msg_type, ~act_type,  ~desc_value,                                         ~description,
+    21800534,    "12:00",                1440,        3,           237,         6,        11,            0,         "[GSW] Iguodala Technical (1 FTA) (J Tiven)",
+    21800534,    "12:00",                1440,        3,           238,        11,         4,            0,         "[GSW] Iguodala Ejection:Other",
+    21800036,    "02:17",                1303,        2,           222,         3,        28,            1,         "[ATL 58-58] Bazemore Free Throw Flagrant 2 of 3 (7 PTS)",
+    21800036,    "02:17",                1303,        2,           223,         3,        29,            1,         "[ATL 59-58] Bazemore Free Throw Flagrant 3 of 3 (8 PTS)")
+
+
+
+change_order <- tribble(
+    ~game_id,     ~number_original,     ~number_event,
+    22101139,                  649,               466,
+    22101139,                  648,               467,
+    22101139,                  650,               469,
+    22101139,                  654,               470,
+    22101196,                  601,               400,
+    22101196,                  577,               401)
+
+change_order <- tribble(
+    ~game_id,     ~number_original,     ~number_event,
+    21900811,                  597,               431,
+    21900811,                  605,               432,
+    21900811,                  612,               433,
+    21900811,                  601,               434,
+    21900811,                  606,               435,
+    21900811,                  599,               436,
+    21900811,                  600,               437,
+    21900507,                  454,               307,
+    21900507,                  456,               308,
+    21900507,                  457,               309,
+    21900650,                  513,               349,
+    21900650,                  517,               350,
+    21900875,                  596,               420,
+    21900875,                  598,               421,
+    21900875,                  601,               423)
+
+change_order <- tribble(
+    ~game_id,     ~number_original,     ~number_event,
+    21800578,                  246,               176,
+    21800578,                  249,               177,
+    21800578,                  250,               178,
+    21800484,                  221,               158,
+    21800484,                  223,               159,
+    21800484,                  224,               160,
+    21800484,                  225,               161,
+    21800484,                  226,               162)
+
+
+manual_changes <- tribble(
+    ~game_id,     ~number_event,    ~shot_pts_home,     ~shot_pts_away,
+    21900622,               328,                 0,                  2,
+    21900742,               216,                 0,                  0,
+    21900742,               219,                 0,                  1)
+
+del_rows <- tribble(
+    ~game_id,                   ~evt,
+    "0022200731",                    648,
+    "0022200741",                    267)
