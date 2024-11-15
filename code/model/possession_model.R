@@ -326,9 +326,6 @@ game_df <- lineup_game %>%
 
 
 
-
-
-
 lineup_minutes <- lineup_game %>%
     filter(game_id == "0021800128") %>%
     arrange(game_id, secs_passed_game) %>%
@@ -359,46 +356,73 @@ lineup_minutes <- lineup_game %>%
 
 
 
+convert_to_minutes_seconds <- function(time_numeric) {
+    minutes <- floor(time_numeric)
+    seconds <- round((time_numeric - minutes) * 60)
+    sprintf("%d:%02d", minutes, seconds)
+}
 
+calculate_playtime <- function(data, lineup_col, secs_col) {
+    last_secs <- tail(data[[secs_col]], 1)  # Get the last value of secs_passed_game
+    last_lineup <- tail(data[[lineup_col]], 1)  # Get the last recorded lineup
+    
+    data %>%
+        mutate(
+            prev_lineup = lag(!!sym(lineup_col), default = ""),
+            entered = map2(!!sym(lineup_col), prev_lineup, ~ setdiff(str_split(.x, ", ")[[1]], str_split(.y, ", ")[[1]])),
+            exited = map2(prev_lineup, !!sym(lineup_col), ~ setdiff(str_split(.x, ", ")[[1]], str_split(.y, ", ")[[1]]))
+        ) %>%
+        select(secs_passed_game = !!sym(secs_col), entered, exited) %>%
+        bind_rows(
+            tibble(
+                secs_passed_game = last_secs,
+                entered = list(character()),  # No new players entering
+                exited = list(str_split(last_lineup, ", ")[[1]])  # Players in the final lineup exiting
+            )
+        )
+}
 
+# Function to calculate entry and exit events
+# calculate_playtime <- function(data, lineup_col, secs_col) {
+#     data %>%
+#         mutate(
+#             prev_lineup = lag(!!sym(lineup_col), default = ""),
+#             entered = map2(!!sym(lineup_col), prev_lineup, ~ setdiff(str_split(.x, ", ")[[1]], str_split(.y, ", ")[[1]])),
+#             exited = map2(prev_lineup, !!sym(lineup_col), ~ setdiff(str_split(.x, ", ")[[1]], str_split(.y, ", ")[[1]]))
+#         ) %>%
+#         select(secs_passed_game = !!sym(secs_col), entered, exited)
+# }
 
+# Process home and away lineups
+home_events <- calculate_playtime(lineup_minutes, "lineup_home", "secs_passed_game")
+away_events <- calculate_playtime(lineup_minutes, "lineup_away", "secs_passed_game")
 
-lineup_minutes <- lineup_game %>%
-    filter(game_id == "0021800128") %>%
-    arrange(game_id, secs_passed_game) %>%
-    # Identify substitution rows by comparing lineups to the next row
+all_events <- bind_rows(
+    home_events %>% mutate(team = "home"),
+    away_events %>% mutate(team = "away")
+) %>%
+    pivot_longer(cols = c(entered, exited), names_to = "event_type", values_to = "player") %>%
+    unnest(player) %>%  # Unnest the players column
+    arrange(secs_passed_game)
+
+# Track cumulative playtime for each player
+player_playtime <- all_events %>%
+    group_by(player) %>%
     mutate(
-        sub_home = if_else(lineup_home == lead(lineup_home), FALSE, TRUE),
-        sub_away = if_else(lineup_away == lead(lineup_away), FALSE, TRUE),
-        next_home = lead(lineup_home),
-        next_away = lead(lineup_away)
+        time_on_court = ifelse(event_type == "exited",
+                               secs_passed_game - lag(secs_passed_game, default = 0),
+                               0)
     ) %>%
-    # Split the lineups into individual players
-    mutate(
-        lineup_home = str_split(lineup_home, ", "),
-        lineup_away = str_split(lineup_away, ", "),
-        next_home = str_split(next_home, ", "),
-        next_away = str_split(next_away, ", ")
-    ) %>%
-    # Identify players who end their stints by finding those missing in the next lineup
-    mutate(
-        exited_home = if_else(sub_home, setdiff(lineup_home, next_home), NA)
-    ) %>%
-    # Expand exited players into individual rows
-    pivot_longer(cols = c(exited_home, exited_away),
-                 names_to = "team",
-                 values_to = "player",
-                 values_drop_na = TRUE) %>%
-    unnest(player) %>%
-    # Calculate stint duration for each player who exited
-    mutate(time_played = secs_passed_game_end - secs_passed_game) %>%
-    # Sum time played per player
-    group_by(game_id, player) %>%
-    summarize(total_sec_played = sum(time_played, na.rm = TRUE), .groups = "drop") %>%
-    mutate(minutes_played = total_sec_played / 60)
+    filter(event_type == "exited") %>%  # Only consider exit events for playtime
+    summarise(total_seconds = sum(time_on_court, na.rm = TRUE)) %>%
+    mutate(total_minutes = total_seconds / 60,
+           minutes_played = convert_to_minutes_seconds(total_minutes)) %>%
+    arrange(desc(total_minutes)) %>%
+    filter(total_seconds != 0)
 
-# Display the final result
-lineup_minutes
+# Display the results
+view(player_playtime)
+
 
 
 
