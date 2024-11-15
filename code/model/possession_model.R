@@ -181,7 +181,8 @@ lineups_quarters <- missing_starters %>%
         subs_made %>% select(game_id, team_player, team_location) %>% distinct(),
         by = c("game_id", "team_player")
     ) %>%
-    bind_rows(lineups_quarters)
+    bind_rows(lineups_quarters) %>%
+    filter(!(game_id == "0022200140" & name_player == "Dennis Schroder" & period == 4))
 
 lineup_subs <- new_pbp %>%
     filter(eventmsgtype == 8) %>%
@@ -1267,5 +1268,7 @@ missing_starters <- tribble(
     "0021800881",            5,           "UTA",        "Joe Ingles",
     "0021801070",            5,           "MEM",     "Bruno Caboclo",
     "0021801132",            5,           "GSW",    "Andre Iguodala",
-    "0021801229",            5,           "UTA",   "Tyler Cavanaugh")
+    "0021801229",            5,           "UTA",   "Tyler Cavanaugh",
+    "0021800569",            5,           "CHI","Wendell Carter Jr.",
+    "0022200234",            2,           "LAL",    " Kendrick Nunn")
 
