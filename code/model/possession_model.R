@@ -270,9 +270,7 @@ lineup_game <- lineup_game %>%
 
 
 game_events <- lineup_game %>%
-    filter(game_id == "0021800128")
-
-
+    filter(game_id == "0022200140")
 
 game_df <- lineup_game %>%
     filter(game_id == "0021800128") %>%
@@ -299,12 +297,12 @@ game_df <- lineup_game %>%
         team_name = coalesce(player1_team_abbreviation, player2_team_abbreviation, player3_team_abbreviation)
     ) %>%
     summarize(
-        fga = sum(!is.na(fga)),
         fgm = sum(!is.na(fgm)),
-        fg3a = sum(!is.na(fg3a)),
+        fga = sum(!is.na(fga)),
         fg3m = sum(!is.na(fg3m)),
-        fta = sum(!is.na(fta)),
+        fg3a = sum(!is.na(fg3a)),
         ftm = sum(!is.na(ftm)),
+        fta = sum(!is.na(fta)),
         oreb = sum(!is.na(oreb)),
         dreb = sum(!is.na(dreb)),
         reb = sum(!is.na(reb)),
@@ -317,41 +315,24 @@ game_df <- lineup_game %>%
     ) %>%
     mutate(
         pts = (fgm-fg3m)*2 + fg3m*3 + ftm,
-        fg_pct = round(fgm/fga, 3),
-        fg3_pct = round(fg3m/fg3a, 3),
-        ft_pct = round(ftm/fta, 3)
+        fg_pct = fgm/fga,
+        fg3_pct = fg3m/fg3a,
+        ft_pct = ftm/fta
+    ) %>%
+    mutate(
+        across(everything(), ~ ifelse(is.nan(.), 0, .)),
+        across(ends_with("pct"), ~ round(., 3))
     ) %>%
     filter(!is.na(player_name)) %>%
+    select(
+        game_id:fga, fg_pct, fg3m:fg3a, fg3_pct, ftm:fta, ft_pct, oreb:foul, pts
+    ) %>%
     arrange(team_location)
 
 
 
-lineup_minutes <- lineup_game %>%
-    filter(game_id == "0021800128") %>%
-    arrange(game_id, secs_passed_game) %>%
-    mutate(
-        sub_home = if_else(lineup_home == lead(lineup_home), FALSE, TRUE),
-        sub_away = if_else(lineup_away == lead(lineup_away), FALSE, TRUE),
-        next_home = lead(lineup_home),
-        next_away = lead(lineup_away)
-    ) %>%
-    mutate(
-        lineup_home = str_split(lineup_home, ", "),
-        lineup_away = str_split(lineup_away, ", "),
-        next_home = str_split(next_home, ", "),
-        next_away = str_split(next_away, ", ")
-    ) %>%
-    mutate(
-        exited_home = map2(lineup_home, next_home, ~ setdiff(.x, .y)),
-        exited_away = map2(lineup_away, next_away, ~ setdiff(.x, .y)),
-        entered_home = if_else(eventmsgtype == 12 & period == 1,
-                               lineup_home,
-                               map2(lineup_home, next_home, ~ setdiff(.y, .x))),
-        entered_away = if_else(eventmsgtype == 12 & period == 1,
-                               lineup_away,
-                               map2(lineup_away, next_away, ~ setdiff(.y, .x)))
-        
-    )
+
+
 
 
 
@@ -382,20 +363,9 @@ calculate_playtime <- function(data, lineup_col, secs_col) {
         )
 }
 
-# Function to calculate entry and exit events
-# calculate_playtime <- function(data, lineup_col, secs_col) {
-#     data %>%
-#         mutate(
-#             prev_lineup = lag(!!sym(lineup_col), default = ""),
-#             entered = map2(!!sym(lineup_col), prev_lineup, ~ setdiff(str_split(.x, ", ")[[1]], str_split(.y, ", ")[[1]])),
-#             exited = map2(prev_lineup, !!sym(lineup_col), ~ setdiff(str_split(.x, ", ")[[1]], str_split(.y, ", ")[[1]]))
-#         ) %>%
-#         select(secs_passed_game = !!sym(secs_col), entered, exited)
-# }
-
 # Process home and away lineups
-home_events <- calculate_playtime(lineup_minutes, "lineup_home", "secs_passed_game")
-away_events <- calculate_playtime(lineup_minutes, "lineup_away", "secs_passed_game")
+home_events <- calculate_playtime(lineup_game, "lineup_home", "secs_passed_game")
+away_events <- calculate_playtime(lineup_game, "lineup_away", "secs_passed_game")
 
 all_events <- bind_rows(
     home_events %>% mutate(team = "home"),
