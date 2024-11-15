@@ -13,31 +13,7 @@ library(janitor)
 
 pbp <- readRDS("./pbp_df.rds")
 
-pbp <- pbp %>%
-    mutate(
-        season_year = case_when(
-            substr(game_id, 1, 5) == "00218" ~ 2019,
-            substr(game_id, 1, 5) == "00219" ~ 2020,
-            substr(game_id, 1, 5) == "00220" ~ 2021,
-            substr(game_id, 1, 5) == "00221" ~ 2022,
-            substr(game_id, 1, 5) == "00222" ~ 2023,
-            TRUE ~ NA_integer_  # Handles cases not in the specified range
-        )
-    )
-
-pbp <- pbp %>%
-    filter(game_id %in% c(
-        "0021800001", "0021800002", "0021800003", "0021800004"
-    ))
-
-# saveRDS(pbp, "./pbp_df.rds")
-
-pbp_df <- pbp %>% select(game_id, period, pctimestring, eventnum:eventmsgactiontype, homedescription:visitordescription)
-
-pbp_df_types <- pbp_df %>%
-    filter(eventmsgtype %in% c(1:5) & !(eventmsgtype == 3 & eventmsgactiontype %in% c(16, 18:19, 20, 27:29, 25:26)) & !(eventmsgtype == 4 & eventmsgactiontype == 1))
-
-
+#### MAMBA Possessions ----
 # eventmsgtype 1 = made shot *
 # eventmsgtype 2 = missed shot *
 # eventmsgtype 3 & 10 = 1 of 1 common foul *
@@ -60,10 +36,10 @@ pbp_df_types <- pbp_df %>%
 # eventmsgtype 4 & 0 = rebound off fg
 # eventmsgtype 4 & 1 = rebound off ft
 # eventmsgtype 5 = turnover *
-
-
-
-
+# eventmsgtype 6 = foul
+# eventmsgtype 7 = 
+# eventmsgtype 8 = sub
+# eventmsgtype 9 = timeout
 
 # Vectorized convert_to_seconds
 convert_to_seconds <- function(time_str) {
@@ -88,6 +64,354 @@ seconds_passed <- function(time_str, period) {
     return(seconds_in_previous_periods + secs_passed_current_period)
 }
 
+#### pbp code starts here ----
+new_pbp <- pbp %>% # mine
+    distinct() %>%
+    filter(eventmsgtype != 18) %>%
+    mutate(
+        season_year = case_when(
+            substr(game_id, 1, 5) == "00218" ~ 2019,
+            substr(game_id, 1, 5) == "00219" ~ 2020,
+            substr(game_id, 1, 5) == "00220" ~ 2021,
+            substr(game_id, 1, 5) == "00221" ~ 2022,
+            substr(game_id, 1, 5) == "00222" ~ 2023,
+            TRUE ~ NA_integer_
+        ),
+        team_location = case_when(
+            person1type == "4" ~ "home", # home player
+            person1type == "5" ~ "away", # away player
+            person1type == "2" ~ "home", # home team
+            person1type == "3" ~ "away", # away team
+            TRUE ~ NA_character_
+        ),
+        secs_left_quarter = convert_to_seconds(pctimestring),
+        secs_passed_quarter = if_else(period %in% 1:4, 720 - secs_left_quarter, 300 - secs_left_quarter),
+        secs_passed_game = seconds_passed(pctimestring, period),
+        possession = case_when(
+            eventmsgtype %in% c(1, 2, 5) ~ 1,
+            eventmsgtype == 3 & eventmsgactiontype %in% c(10, 12, 15, 19, 20, 29) ~ 1,
+            TRUE ~ 0),
+        shot_pts_home = case_when(
+            eventmsgtype == 3 & !str_detect(homedescription, "MISS") ~ 1,                               
+            eventmsgtype == 1 & str_detect(homedescription, "3PT") ~ 3,                                 
+            eventmsgtype == 1 & !str_detect(homedescription, "3PT") ~ 2,
+            TRUE ~ 0),
+        shot_pts_away = case_when(
+            eventmsgtype == 3 & !str_detect(visitordescription, "MISS") ~ 1,
+            eventmsgtype == 1 & str_detect(visitordescription, "3PT") ~ 3,
+            eventmsgtype == 1 & !str_detect(visitordescription, "3PT") ~ 2,
+            TRUE ~ 0)
+    ) %>%
+    group_by(game_id) %>%
+    mutate(
+        pts_home = cumsum(shot_pts_home),
+        pts_away = cumsum(shot_pts_away),
+        event_index = row_number(),
+    ) %>%
+    ungroup() %>%
+    arrange(game_id, secs_passed_game) %>%
+    select(
+        -c(ends_with("_city"), ends_with("_nickname"),
+           score, scoremargin, video_available_flag)
+    )
+
+subs_made <- new_pbp %>% # players subbed in quarter
+    filter(eventmsgtype == 8) %>%
+    select(
+        game_id, period, secs_passed_game, team_location,
+        team_player = player1_team_abbreviation,
+        player_out = player1_name,
+        player_in = player2_name
+    ) %>%
+    pivot_longer(
+        cols = starts_with("player_"),
+        names_to = "sub",
+        names_prefix = "player_",
+        values_to = "name_player"
+    ) %>%
+    group_by(game_id, period, team_player, name_player) %>%
+    filter(row_number() == 1) %>%
+    ungroup()
+
+others_qtr <- new_pbp %>% # finds players not subbed out in a quarter
+    filter(eventmsgtype != 8,
+           !(eventmsgtype == 6 & eventmsgactiontype %in% c(10, 11, 16, 18, 25)),
+           !(eventmsgtype == 11 & eventmsgactiontype %in% c(1, 4))) %>%
+    pivot_longer(
+        cols = c(player1_name, player2_name, player3_name),
+        names_to = "player_number",
+        names_prefix = "name_player",
+        values_to = "name_player"
+    ) %>%
+    mutate(
+        team_player = case_when(
+            player_number == "player1_name" ~ player1_team_abbreviation,
+            player_number == "player2_name" ~ player2_team_abbreviation,
+            player_number == "player3_name" ~ player3_team_abbreviation,
+            TRUE ~ NA_character_
+        )
+    ) %>%
+    filter(!is.na(name_player), !is.na(team_player)) %>%
+    anti_join(
+        subs_made %>%
+            select(game_id, period, team_player, name_player),
+        by = c("game_id", "period", "team_player", "name_player")
+    ) %>%
+    distinct(game_id, period, name_player, team_player) %>%
+    left_join(
+        subs_made %>% select(game_id, team_player, team_location) %>% distinct(),
+        by = c("game_id", "team_player")
+    )
+
+
+lineups_quarters <- subs_made %>% # lineups to start quarter
+    filter(sub == "out") %>%
+    select(game_id, period, team_player, name_player, team_location) %>%
+    union_all(others_qtr %>%
+                  select(game_id, period, team_player, name_player, team_location)) %>%
+    arrange(game_id, period, team_player)
+
+lineups_errors <- lineups_quarters %>%
+    count(game_id, period, team_player) %>%
+    filter(n != 5)
+
+lineups_quarters <- missing_starters %>%
+    mutate(period = as.character(period)) %>%
+    left_join(
+        subs_made %>% select(game_id, team_player, team_location) %>% distinct(),
+        by = c("game_id", "team_player")
+    ) %>%
+    bind_rows(lineups_quarters)
+
+lineup_subs <- new_pbp %>%
+    filter(eventmsgtype == 8) %>%
+    select(
+        game_id, period, event_index, team_location,
+        team_player = player1_team_abbreviation,
+        player_out = player1_name,
+        player_in = player2_name
+    ) %>%
+    left_join(
+        lineups_quarters %>%
+            group_by(game_id, period, team_player) %>%
+            summarise(lineup_initial = paste(sort(unique(name_player)), collapse = ", "), .groups = "drop"),
+        by = c("game_id", "period", "team_player")
+    ) %>%
+    mutate(lineup_initial = str_split(lineup_initial, ", ")) %>%
+    group_by(game_id, period, team_player) %>%
+    mutate(
+        lineup_after = accumulate2(
+            .x = player_in,
+            .y = player_out,
+            .f = ~ setdiff(c(..1, ..2), ..3),
+            .init = lineup_initial[[1]]
+        )[-1],
+        lineup_before = coalesce(lineup_initial, lag(lineup_after))
+    ) %>%
+    ungroup() %>%
+    mutate(across(c(lineup_initial, lineup_after), ~ map_chr(.x, ~ paste(.x, collapse = ", ")))) %>%
+    mutate(
+        lineup_before_home = ifelse(team_location == "home", lineup_initial, NA),
+        lineup_after_home = ifelse(team_location == "home", lineup_after, NA),
+        lineup_before_away = ifelse(team_location == "away", lineup_initial, NA),
+        lineup_after_away = ifelse(team_location == "away", lineup_after, NA)
+    ) %>%
+    select(game_id, event_index, contains("home"), contains("away"))
+
+lineup_game <- new_pbp %>%
+    left_join(
+        lineups_quarters %>%
+            group_by(game_id, period, team_location) %>%
+            summarize(lineup_initial = paste(sort(unique(name_player)), collapse = ", "), .groups = "drop") %>%
+            pivot_wider(
+                names_from = team_location,
+                names_prefix = "lineup_initial_",
+                values_from = lineup_initial
+            ) %>%
+            mutate(eventmsgtype = "12"),
+        by = c("game_id", "period", "eventmsgtype"),
+    ) %>%
+    left_join(
+        lineup_subs,
+        by = c("game_id", "event_index")
+    ) %>%
+    mutate(
+        lineup_before_home = coalesce(lineup_before_home, lineup_initial_home),
+        lineup_after_home = coalesce(lineup_after_home, lineup_initial_home),
+        lineup_before_away = coalesce(lineup_before_away, lineup_initial_away),
+        lineup_after_away = coalesce(lineup_after_away, lineup_initial_away)
+    ) %>%
+    select(-starts_with("lineup_initial"))
+
+# filter out timeouts and only keep last lineup -- get rid of consecutive lineups
+lineup_game <- lineup_game %>%
+    group_by(eventmsgtype != 9) %>%
+    mutate(across(lineup_before_home:lineup_after_away, ~ {
+        last_na <- lead(is.na(.), default = TRUE)
+        replace(., !last_na & !is.na(.), NA)
+    })) %>%
+    ungroup() %>%
+    select(-"eventmsgtype != 9")
+
+lineup_game <- lineup_game %>%
+    group_by(game_id, period) %>%
+    mutate(
+        lineup_home = zoo::na.locf(lineup_after_home, na.rm = FALSE),
+        lineup_away = zoo::na.locf(lineup_after_away, na.rm = FALSE),
+        lineup_home = coalesce(lineup_home, zoo::na.locf(lineup_before_home, fromLast = TRUE, na.rm = FALSE)),
+        lineup_away = coalesce(lineup_away, zoo::na.locf(lineup_before_away, fromLast = TRUE, na.rm = FALSE)),
+        lineup_home = str_split(lineup_home, ", ") %>% map_chr(~ paste(sort(.), collapse = ", ")),
+        lineup_away = str_split(lineup_away, ", ") %>% map_chr(~ paste(sort(.), collapse = ", "))
+    ) %>%
+    ungroup() %>%
+    select(-starts_with("lineup_before"), -starts_with("lineup_after"))
+
+
+
+game_events <- lineup_game %>%
+    filter(game_id == "0021800128")
+
+
+
+game_df <- lineup_game %>%
+    filter(game_id == "0021800128") %>%
+    mutate(
+        fga = if_else(eventmsgtype %in% c(1, 2), player1_name, NA_character_),
+        fgm = if_else(eventmsgtype == 1, player1_name, NA_character_),
+        fg3a = if_else(eventmsgtype %in% c(1, 2) & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), player1_name, NA_character_),
+        fg3m = if_else(eventmsgtype == 1 & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), player1_name, NA_character_),
+        fta = if_else(eventmsgtype == 3, player1_name, NA_character_),
+        ftm = if_else(eventmsgtype == 3 & (!str_detect(homedescription, "MISS") | !str_detect(visitordescription, "MISS")), player1_name, NA_character_),
+        oreb = if_else(eventmsgtype == 4 & player1_team_id == lag(player1_team_id), player1_name, NA_character_),
+        dreb = if_else(eventmsgtype == 4 & player1_team_id != lag(player1_team_id), player1_name, NA_character_),
+        reb = if_else(eventmsgtype == 4, player1_name, NA_character_),
+        ast = if_else(eventmsgtype == 1, player2_name, NA_character_),
+        stl = if_else(eventmsgtype == 5 & eventmsgactiontype %in% c(1, 2), player1_name, NA_character_),
+        blk = if_else(eventmsgtype == 2, player3_name, NA_character_),
+        tov = if_else(eventmsgtype == 5, player1_name, NA_character_),
+        foul = if_else(eventmsgtype == 6, player1_name, NA_character_)
+    ) %>%
+    group_by(
+        game_id,
+        team_location,
+        player_name = coalesce(player1_name, player2_name, player3_name),
+        team_name = coalesce(player1_team_abbreviation, player2_team_abbreviation, player3_team_abbreviation)
+    ) %>%
+    summarize(
+        fga = sum(!is.na(fga)),
+        fgm = sum(!is.na(fgm)),
+        fg3a = sum(!is.na(fg3a)),
+        fg3m = sum(!is.na(fg3m)),
+        fta = sum(!is.na(fta)),
+        ftm = sum(!is.na(ftm)),
+        oreb = sum(!is.na(oreb)),
+        dreb = sum(!is.na(dreb)),
+        reb = sum(!is.na(reb)),
+        ast = sum(!is.na(ast)),
+        stl = sum(!is.na(stl)),
+        blk = sum(!is.na(blk)),
+        tov = sum(!is.na(tov)),
+        foul = sum(!is.na(foul)),
+        .groups = "drop"
+    ) %>%
+    mutate(
+        pts = (fgm-fg3m)*2 + fg3m*3 + ftm,
+        fg_pct = round(fgm/fga, 3),
+        fg3_pct = round(fg3m/fg3a, 3),
+        ft_pct = round(ftm/fta, 3)
+    ) %>%
+    filter(!is.na(player_name)) %>%
+    arrange(team_location)
+
+
+
+
+
+
+lineup_minutes <- lineup_game %>%
+    filter(game_id == "0021800128") %>%
+    arrange(game_id, secs_passed_game) %>%
+    mutate(
+        sub_home = if_else(lineup_home == lead(lineup_home), FALSE, TRUE),
+        sub_away = if_else(lineup_away == lead(lineup_away), FALSE, TRUE),
+        next_home = lead(lineup_home),
+        next_away = lead(lineup_away)
+    ) %>%
+    mutate(
+        lineup_home = str_split(lineup_home, ", "),
+        lineup_away = str_split(lineup_away, ", "),
+        next_home = str_split(next_home, ", "),
+        next_away = str_split(next_away, ", ")
+    ) %>%
+    mutate(
+        exited_home = map2(lineup_home, next_home, ~ setdiff(.x, .y)),
+        exited_away = map2(lineup_away, next_away, ~ setdiff(.x, .y)),
+        entered_home = if_else(eventmsgtype == 12 & period == 1,
+                               lineup_home,
+                               map2(lineup_home, next_home, ~ setdiff(.y, .x))),
+        entered_away = if_else(eventmsgtype == 12 & period == 1,
+                               lineup_away,
+                               map2(lineup_away, next_away, ~ setdiff(.y, .x)))
+        
+    )
+
+
+
+
+
+
+
+
+lineup_minutes <- lineup_game %>%
+    filter(game_id == "0021800128") %>%
+    arrange(game_id, secs_passed_game) %>%
+    # Identify substitution rows by comparing lineups to the next row
+    mutate(
+        sub_home = if_else(lineup_home == lead(lineup_home), FALSE, TRUE),
+        sub_away = if_else(lineup_away == lead(lineup_away), FALSE, TRUE),
+        next_home = lead(lineup_home),
+        next_away = lead(lineup_away)
+    ) %>%
+    # Split the lineups into individual players
+    mutate(
+        lineup_home = str_split(lineup_home, ", "),
+        lineup_away = str_split(lineup_away, ", "),
+        next_home = str_split(next_home, ", "),
+        next_away = str_split(next_away, ", ")
+    ) %>%
+    # Identify players who end their stints by finding those missing in the next lineup
+    mutate(
+        exited_home = if_else(sub_home, setdiff(lineup_home, next_home), NA)
+    ) %>%
+    # Expand exited players into individual rows
+    pivot_longer(cols = c(exited_home, exited_away),
+                 names_to = "team",
+                 values_to = "player",
+                 values_drop_na = TRUE) %>%
+    unnest(player) %>%
+    # Calculate stint duration for each player who exited
+    mutate(time_played = secs_passed_game_end - secs_passed_game) %>%
+    # Sum time played per player
+    group_by(game_id, player) %>%
+    summarize(total_sec_played = sum(time_played, na.rm = TRUE), .groups = "drop") %>%
+    mutate(minutes_played = total_sec_played / 60)
+
+# Display the final result
+lineup_minutes
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### possessions code ----
 # Initial possessions with optimized code
 poss_initial <- pbp %>%
     distinct() %>%
@@ -350,9 +674,7 @@ new_pbp <- pbp %>% # mine
         margin_before_home = pts_home - pts_away - shot_pts_home + shot_pts_away,
         margin_before_away = pts_away - pts_home - shot_pts_away + shot_pts_home,
     ) %>%
-    arrange(game_id, event_num) %>%
-    mutate(game_id = as.numeric(game_id)) %>%
-    filter(season_year == 2019)
+    arrange(game_id, event_num)
 
 subs_made <- new_pbp2 %>%
     filter(numberEventMessageType == 8) %>%
@@ -507,7 +829,7 @@ lineup_subs <- lineup_subs %>% # mine
     arrange(game_id, event_num) %>%
     left_join(lineups_quarters %>%
                   distinct(game_id, team_player, team_location)) %>%
-    filter(!is.na(team_location))
+    filter(is.na(team_location))
 
 lineup_game <- new_pbp %>%
     group_by(idGame, numberPeriod) %>%
@@ -575,10 +897,10 @@ lineup_game <- lineup_game %>%
 
 lineup_game <- lineup_game %>% # mine
     group_by(game_id, period) %>%
-    mutate(lineup_home = na.locf(lineup_after_home, na.rm = FALSE),
-           lineup_away = na.locf(lineup_after_away, na.rm = FALSE),
-           lineup_home = ifelse(is.na(lineup_home), na.locf(lineup_before_home, fromLast = TRUE, na.rm = FALSE), lineup_home),
-           lineup_away = ifelse(is.na(lineup_away), na.locf(lineup_before_away, fromLast = TRUE, na.rm = FALSE), lineup_away),
+    mutate(lineup_home = zoo::na.locf(lineup_after_home, na.rm = FALSE),
+           lineup_away = zoo::na.locf(lineup_after_away, na.rm = FALSE),
+           lineup_home = ifelse(is.na(lineup_home), zoo::na.locf(lineup_before_home, fromLast = TRUE, na.rm = FALSE), lineup_home),
+           lineup_away = ifelse(is.na(lineup_away), zoo::na.locf(lineup_before_away, fromLast = TRUE, na.rm = FALSE), lineup_away),
            lineup_home = str_split(lineup_home, ", "),
            lineup_away = str_split(lineup_away, ", "),
            lineup_home = map_chr(lineup_home, ~ paste(sort(.), collapse = ", ")),
@@ -888,4 +1210,62 @@ rm(games, event_changes, play_logs_all, new_pbp, subs_made, others_qtr,
    change_consec, poss_pack, start_possessions, poss_pack_start, last_possessions, fouls_possessions,
    missing_comp, last_rebounds, missedft_and1_last, addit_poss_reb, addit_poss_made, additional_possessions)
 
+
+missing_starters <- tribble(
+    ~game_id,      ~period,      ~team_player,      ~name_player,
+    "0022200025",            5,           "MIN",  "Jaden McDaniels",
+    "0022200039",            5,           "WAS",     "Delon Wright",
+    "0022200040",            5,           "UTA",      "Mike Conley",
+    "0022200072",            5,           "BOS",       "Al Horford",
+    "0022200117",            5,           "NOP",    "Naji Marshall",
+    "0022200117",            5,           "LAL",    "Austin Reaves",
+    "0022200325",            5,           "DET",   "Isaiah Stewart",
+    "0022200440",            5,           "DAL",  "Tim Hardaway Jr.",
+    "0022200519",            5,           "CHI",       "Zach LaVine",
+    "0022200659",            5,           "TOR",    "Gary Trent Jr.",
+    "0022200748",            5,           "SAS",  "Keita Bates-Diop",
+    "0022200758",            5,           "SAC",   "Harrison Barnes",
+    "0022200892",            5,           "OKC",    "Jalen Williams",
+    "0022201007",            5,           "MIA",         "Max Strus",
+    "0022201194",            5,           "NOP",       "CJ McCollum",
+    "0022201205",            5,           "ATL",        "Saddiq Bey",
+    "0022100041",            5,           "CHA",    "Gordon Hayward",
+    "0022100291",            6,           "LAL",        "Malik Monk",
+    "0022100353",            5,           "PHI",       "Danny Green",
+    "0022100413",            5,           "BKN",   "Kessler Edwards",
+    "0022100688",            3,           "POR",  "Robert Covington",
+    "0022100860",            5,           "OKC",     "Darius Bazley",
+    "0022100967",            5,           "NOP",        "Tony Snell",
+    "0022000023",            5,           "DET",      "Delon Wright",
+    "0022000100",            5,           "IND",    "Justin Holiday",
+    "0022000120",            5,           "DEN",       "Gary Harris",
+    "0022000440",            5,           "MIN",   "Anthony Edwards",
+    "0022000465",            5,           "NOP",        "Lonzo Ball",
+    "0022000485",            1,           "DAL", "Dorian Finney-Smith",
+    "0022000637",            5,           "CHI",        "Coby White",
+    "0022000645",            5,           "IND",    "T.J. McConnell",
+    "0022001012",            5,           "WAS",         "Raul Neto",
+    "0022001064",            5,           "CHA",   "Jalen McDaniels",
+    "0021900023",            5,           "DEN",      "Malik Beasley",
+    "0021900120",            5,           "MIN",    "Treveon Graham",
+    "0021900272",            5,           "ATL",   "De'Andre Hunter",
+    "0021900409",            5,           "WAS",         "Ish Smith",
+    "0021900502",            5,           "GSW",        "Damion Lee",
+    "0021900550",            5,           "OKC", "Terrance Ferguson",
+    "0021900563",            5,           "DET",        "Tony Snell",
+    "0021900696",            5,           "SAC",   "Harrison Barnes",
+    "0021900787",            5,           "ATL",   "De'Andre Hunter",
+    "0021900892",            5,           "HOU",       "Eric Gordon",
+    "0021901281",            6,           "DEN",      "Monte Morris",
+    "0021800143",            6,           "CHI",    "Justin Holiday",
+    "0021800143",            6,           "NYK",       "Noah Vonleh",
+    "0021800216",            5,           "BOS", "Marcus Morris Sr.",
+    "0021800276",            3,           "DEN","Juancho Hernangomez",
+    "0021800371",            5,           "BKN",        "Joe Harris",
+    "0021800565",            5,           "HOU",       "P.J. Tucker",
+    "0021800619",            5,           "OKC", "Terrance Ferguson",
+    "0021800881",            5,           "UTA",        "Joe Ingles",
+    "0021801070",            5,           "MEM",     "Bruno Caboclo",
+    "0021801132",            5,           "GSW",    "Andre Iguodala",
+    "0021801229",            5,           "UTA",   "Tyler Cavanaugh")
 
