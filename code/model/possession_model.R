@@ -1611,7 +1611,7 @@ pbp_process_poss <- function(data) {
         left_join(fgs_and_one %>% select(game_id, eventnum, possession, fg_and_one),
                   by = c("game_id", "eventnum")) %>%
         mutate(possession = coalesce(possession.y, possession.x)) %>%
-        select(-possession.y, -possession.x)
+        select(-c(possession.y, possession.x, fg_and_one))
     
     # Identify and change consecutive possessions
     poss_consec <- poss_and_one %>%
@@ -1666,7 +1666,7 @@ game_events <- pbp_lineups %>%
 
 
     
-# 0021800103 period 4 -- subs after make on and one and before free throw...
+
 
 pbp_poss %>%
     filter(game_id == "0021800103") %>%
