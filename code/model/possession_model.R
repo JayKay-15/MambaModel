@@ -42,6 +42,25 @@ pbp <- readRDS("./pbp_df.rds")
 # eventmsgtype 8 = sub
 # eventmsgtype 9 = timeout
 
+
+corrections <- tribble(
+    ~game_id, ~eventnum, ~eventmsgtype, ~eventmsgactiontype, ~description, # need to find home vs visitor desc
+    "0022200094", "542", "3", "16", "Lee Free Throw Technical (5 PTS)",
+    "0022200583", "615", "3", "10", "MISS Plumlee Free Throw 1 of 1",
+    "0022100295", "405", "6",  "2", "Lopez S.FOUL (P3.T2) (J. Capers)",
+    "0022100249", "705", "3", "18", "MISS J. Jackson Free Throw Flagrant 1 of 2",
+    "0022100249", "707", "3", "19", "J. Jackson Free Throw Flagrant 2 of 2 (5 PTS)",
+    "0021800036", "319", "3", "28", "Bazemore Free Throw Flagrant 2 of 3 (7 PTS)",
+    "0021800036", "320", "3", "29", "Bazemore Free Throw Flagrant 3 of 3 (8 PTS)"
+)
+
+
+delete_rows <- tribble(
+    ~game_id, ~eventnum,
+    "0022200731", "648",
+    "0022200741", "267"
+)
+
 # Vectorized convert_to_seconds
 convert_to_seconds <- function(time_str) {
     time_parts <- do.call(rbind, strsplit(time_str, ":"))
