@@ -1602,6 +1602,14 @@ pbp_process_poss <- function(data) {
 pbp_poss <- pbp_process_poss(pbp_scores)
 
 saveRDS(pbp_poss, "/Users/jesse/Desktop/rds_files/processed_pbp.rds")
+
+# creat pbp list
+pbp_list <- pbp_poss %>% group_split(game_id)
+names(pbp_list) <- pbp_poss %>%
+    group_by(game_id) %>% 
+    group_keys() %>%
+    pull(game_id)
+
 saveRDS(pbp_list, "/Users/jesse/Desktop/rds_files/processed_pbp_list.rds")
 
 
@@ -1618,12 +1626,6 @@ pbp_wp <- win_prob %>%
     left_join(pbp_lineups, by = c("game_id", "period", "event_num" = "eventnum"))
 
 
-# creat pbp list
-pbp_list <- pbp_poss %>% group_split(game_id)
-names(pbp_list) <- pbp_poss %>%
-    group_by(game_id) %>% 
-    group_keys() %>%
-    pull(game_id)
 
 
 pbp_list <- read_rds("/Users/jesse/Desktop/rds_files/processed_pbp_list.rds")
@@ -1671,9 +1673,9 @@ calculate_playtime_by_lineup <- function(game_df) {
     }
     
     # Calculate home and away lineup events
-    home_lineups <- calculate_lineup_events(game_df, "lineup_home", "secs_passed_game") %>%
+    home_lineups <- calculate_lineup_events(game_df, "lineup_home_pt", "secs_passed_game") %>%
         mutate(team = "home")
-    away_lineups <- calculate_lineup_events(game_df, "lineup_away", "secs_passed_game") %>%
+    away_lineups <- calculate_lineup_events(game_df, "lineup_away_pt", "secs_passed_game") %>%
         mutate(team = "away")
     
     # Combine home and away lineups and summarize playtime
@@ -1780,7 +1782,7 @@ process_and_combine_lineup <- function(game_df) {
 lineup_box_score <- map(pbp_list, process_and_combine_lineup)
 
 # Combine results for all games
-final_combined_results <- bind_rows(final_results, .id = "game_id")
+final_lineup_box_score <- bind_rows(final_results, .id = "game_id")
 
 
 
@@ -1818,8 +1820,8 @@ calculate_playtime_by_player <- function(game_df) {
             )
     }
     
-    home_events <- calculate_playtime(game_df, "lineup_home", "secs_passed_game")
-    away_events <- calculate_playtime(game_df, "lineup_away", "secs_passed_game")
+    home_events <- calculate_playtime(game_df, "lineup_home_pt", "secs_passed_game")
+    away_events <- calculate_playtime(game_df, "lineup_away_pt", "secs_passed_game")
     
     all_events <- bind_rows(
         home_events %>% mutate(team = "home"),
@@ -1862,7 +1864,7 @@ calculate_box_score_by_player <- function(game_df) {
             fg3a = if_else(eventmsgtype %in% c(1, 2) & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), player1_name, NA_character_),
             fg3m = if_else(eventmsgtype == 1 & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), player1_name, NA_character_),
             fta = if_else(eventmsgtype == 3, player1_name, NA_character_),
-            ftm = if_else(eventmsgtype == 3 & (!str_detect(homedescription, "MISS") & !str_detect(visitordescription, "MISS")), player1_name, NA_character_),
+            ftm = if_else(eventmsgtype == 3 & (!str_detect(homedescription, "MISS") | !str_detect(visitordescription, "MISS")), player1_name, NA_character_),
             oreb = if_else(eventmsgtype == 4 & player1_team_id == lag(player1_team_id), player1_name, NA_character_),
             dreb = if_else(eventmsgtype == 4 & player1_team_id != lag(player1_team_id), player1_name, NA_character_),
             reb = if_else(eventmsgtype == 4, player1_name, NA_character_),
@@ -1933,7 +1935,7 @@ process_and_combine_player <- function(game_df) {
 player_box_score <- map(pbp_list, process_and_combine_player)
 
 # Combine results for all games
-final_combined_results <- bind_rows(final_results, .id = "game_id")
+final_player_box_score <- bind_rows(final_results, .id = "game_id")
 
 
 
