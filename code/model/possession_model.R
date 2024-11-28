@@ -1437,6 +1437,10 @@ pbp_process_lineups <- function(data, missing_players) {
         select(-starts_with("lineup_before"), -starts_with("lineup_after")) %>%
         left_join(fgs_data %>% select(game_id, eventnum, fg_and_one),
                   by = c("game_id", "eventnum")) %>%
+        mutate(
+            lineup_home_pt = lineup_home,
+            lineup_away_pt = lineup_away
+        ) %>%
         group_by(game_id) %>% # keep lineup that committed foul until after FT
         mutate(
             ft_start_id = if_else(
@@ -1627,7 +1631,7 @@ pbp_list <- read_rds("/Users/jesse/Desktop/rds_files/processed_pbp_list.rds")
 game_df <- pbp_list[["0021800001"]]
 
 test <- game_df %>%
-    filter(lineup_away == "Ben Simmons, Dario Saric, JJ Redick, Joel Embiid, Robert Covington")
+    filter(lineup_away == "Ben Simmons, Dario Saric, JJ Redick, Joel Embiid, Landry Shamet")
 
 # Function to calculate playtime by lineup
 calculate_playtime_by_lineup <- function(game_df) {
