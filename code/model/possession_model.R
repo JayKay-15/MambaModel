@@ -1227,6 +1227,7 @@ pbp_process_lineups <- function(data, missing_players) {
                 substr(game_id, 1, 5) == "00220" ~ 2021,
                 substr(game_id, 1, 5) == "00221" ~ 2022,
                 substr(game_id, 1, 5) == "00222" ~ 2023,
+                substr(game_id, 1, 5) == "00223" ~ 2024,
                 TRUE ~ NA_integer_
             ),
             team_location = case_when(
@@ -1250,6 +1251,23 @@ pbp_process_lineups <- function(data, missing_players) {
             -c(ends_with("_city"), ends_with("_nickname"),
                wctimestring, score, scoremargin, video_available_flag)
         )
+    
+    # Extract home team names
+    home_teams <- data %>%
+        filter(eventmsgtype == 10, eventmsgactiontype == 0, period == 1) %>%
+        select(game_id, home_team_name = player1_team_abbreviation) %>%
+        distinct()
+    
+    # Extract home team names
+    away_teams <- data %>%
+        filter(eventmsgtype == 10, eventmsgactiontype == 0, period == 1) %>%
+        select(game_id, away_team_name = player2_team_abbreviation) %>%
+        distinct()
+    
+    # Join back to the main data
+    data <- data %>%
+        left_join(home_teams, by = "game_id") %>%
+        left_join(away_teams, by = "game_id")
     
     # Subs in quarter
     subs_made <- data %>%
@@ -1615,28 +1633,1309 @@ saveRDS(pbp_list, "/Users/jesse/Desktop/rds_files/processed_pbp_list.rds")
 
 
 
-win_prob <- wp %>%
-    select(game_id:visitor_pct, period, seconds_remaining, location) %>%
-    distinct()
-
-pbp_wp <- pbp_lineups %>%
-    left_join(win_prob, by = c("game_id", "period", "eventnum" = "event_num"))
-
-pbp_wp <- win_prob %>%
-    left_join(pbp_lineups, by = c("game_id", "period", "event_num" = "eventnum"))
+# win_prob <- wp %>%
+#     select(game_id:visitor_pct, period, seconds_remaining, location) %>%
+#     distinct()
+# 
+# pbp_wp <- pbp_lineups %>%
+#     left_join(win_prob, by = c("game_id", "period", "eventnum" = "event_num"))
+# 
+# pbp_wp <- win_prob %>%
+#     left_join(pbp_lineups, by = c("game_id", "period", "event_num" = "eventnum"))
 
 
 
 
 pbp_list <- read_rds("/Users/jesse/Desktop/rds_files/processed_pbp_list.rds")
 
-game_df <- pbp_list[["0021800001"]]
+game_df <- pbp_list[["0021800003"]]
 
-test <- game_df %>%
-    filter(lineup_away == "Ben Simmons, Dario Saric, JJ Redick, Joel Embiid, Landry Shamet")
+game_df <- game_df %>%
+    filter(period == 4)
 
+
+
+#### Simplified ---- join box score to minutes... calculate time played for stats lineups cols
+#                                                 use this to filter 0 pt lineups
 # Function to calculate playtime by lineup
-calculate_playtime_by_lineup <- function(game_df) {
+calculate_playtime_by_lineup_period <- function(game_df) {
+    # Convert numeric time to minutes:seconds format
+    convert_to_minutes_seconds <- function(time_numeric) {
+        minutes <- floor(time_numeric)
+        seconds <- round((time_numeric - minutes) * 60)
+        sprintf("%d:%02d", minutes, seconds)
+    }
+    
+    # Define helper function to calculate events
+    calculate_lineup_events <- function(data, lineup_col, secs_col, team_col) {
+        last_secs <- tail(data[[secs_col]], 1)
+        last_lineup <- tail(data[[lineup_col]], 1)
+        
+        data %>%
+            mutate(
+                prev_lineup = lag(!!sym(lineup_col), default = ""),
+                lineup_changed = !!sym(lineup_col) != prev_lineup
+            ) %>%
+            filter(lineup_changed) %>%
+            select(
+                secs_passed_game = !!sym(secs_col),
+                lineup = !!sym(lineup_col),
+                period,
+                game_id
+            ) %>%
+            bind_rows(
+                tibble(
+                    secs_passed_game = last_secs,
+                    lineup = last_lineup
+                )
+            ) %>%
+            arrange(secs_passed_game) %>%
+            mutate(
+                time_played = lead(secs_passed_game, default = last_secs) - secs_passed_game
+            ) %>%
+            filter(time_played != 0) %>%
+            group_by(game_id, period) %>%
+            mutate(lineup_index = cumsum(lineup != lag(lineup, default = first(lineup)) | row_number() == 1)) %>%
+            ungroup() %>%
+            mutate(team_name = head(data[[team_col]], 1))
+    }
+    
+    # Calculate home and away lineup events
+    home_lineups <- calculate_lineup_events(game_df, "lineup_home_pt", "secs_passed_game", "home_team_name") %>%
+        mutate(team_location = "home")
+    
+    away_lineups <- calculate_lineup_events(game_df, "lineup_away_pt", "secs_passed_game", "away_team_name") %>%
+        mutate(team_location = "away")
+    
+    # Combine home and away lineups and summarize playtime
+    lineup_playtime <- bind_rows(home_lineups, away_lineups) %>%
+        filter(!is.na(period)) %>%
+        group_by(game_id, team_location, team_name, lineup, period, lineup_index) %>%
+        summarize(
+            total_seconds = sum(time_played, na.rm = TRUE),
+            .groups = "drop"
+        ) %>%
+        arrange(team_location, lineup_index) %>%
+        mutate(
+            starter = if_else(lineup_index == 1, 1, 0),
+            total_minutes = total_seconds / 60,
+            minutes_played = convert_to_minutes_seconds(total_minutes)
+        ) %>%
+        select(game_id, team_location, period, lineup, team_name,
+               total_minutes, minutes_played, starter, lineup_index)
+    
+    return(lineup_playtime)
+}
+
+calculate_playtime_by_lineup_period_test <- function(game_df) {
+    # Convert numeric time to minutes:seconds format
+    convert_to_minutes_seconds <- function(time_numeric) {
+        minutes <- floor(time_numeric)
+        seconds <- round((time_numeric - minutes) * 60)
+        sprintf("%d:%02d", minutes, seconds)
+    }
+    
+    # Define helper function to calculate events
+    calculate_lineup_events <- function(data, lineup_col, secs_col, team_col) {
+        last_secs <- tail(data[[secs_col]], 1)
+        last_lineup <- tail(data[[lineup_col]], 1)
+        
+        data %>%
+            mutate(
+                prev_lineup = lag(!!sym(lineup_col), default = ""),
+                lineup_changed = !!sym(lineup_col) != prev_lineup
+            ) %>%
+            filter(lineup_changed) %>%
+            select(
+                secs_passed_game = !!sym(secs_col),
+                lineup = !!sym(lineup_col),
+                period,
+                game_id
+            ) %>%
+            bind_rows(
+                tibble(
+                    secs_passed_game = last_secs,
+                    lineup = last_lineup
+                )
+            ) %>%
+            arrange(secs_passed_game) %>%
+            mutate(
+                time_played = lead(secs_passed_game, default = last_secs) - secs_passed_game
+            ) %>%
+            # filter(time_played != 0) %>%
+            group_by(game_id, period) %>%
+            mutate(lineup_index = cumsum(lineup != lag(lineup, default = first(lineup)) | row_number() == 1)) %>%
+            ungroup() %>%
+            mutate(team_name = head(data[[team_col]], 1))
+    }
+    
+    # Calculate home and away lineup events
+    home_lineups <- calculate_lineup_events(game_df, "lineup_home", "secs_passed_game", "home_team_name") %>%
+        mutate(team_location = "home")
+    
+    away_lineups <- calculate_lineup_events(game_df, "lineup_away", "secs_passed_game", "away_team_name") %>%
+        mutate(team_location = "away")
+    
+    # Combine home and away lineups and summarize playtime
+    lineup_playtime <- bind_rows(home_lineups, away_lineups) %>%
+        filter(!is.na(period)) %>%
+        group_by(game_id, team_location, team_name, lineup, period, lineup_index) %>%
+        summarize(
+            total_seconds = sum(time_played, na.rm = TRUE),
+            .groups = "drop"
+        ) %>%
+        arrange(team_location, lineup_index) %>%
+        mutate(
+            starter = if_else(lineup_index == 1, 1, 0),
+            total_minutes = total_seconds / 60,
+            minutes_played = convert_to_minutes_seconds(total_minutes)
+        ) %>%
+        select(game_id, team_location, period, lineup, team_name,
+               total_minutes, minutes_played, starter, lineup_index)
+    
+    return(lineup_playtime)
+}
+
+# Function to calculate box score by lineup
+calculate_box_score_by_lineup_period <- function(game_df) {
+    lineup_box_score <- game_df %>%
+        mutate(
+            lineup = case_when(
+                team_location == "away" ~ lineup_away,
+                team_location == "home" ~ lineup_home,
+                TRUE ~ NA_character_),
+            team_name = case_when(
+                team_location == "away" ~ away_team_name,
+                team_location == "home" ~ home_team_name,
+                TRUE ~ NA_character_),
+            fga = if_else(eventmsgtype %in% c(1, 2), lineup, NA_character_),
+            fgm = if_else(eventmsgtype == 1, lineup, NA_character_),
+            fg3a = if_else(eventmsgtype %in% c(1, 2) & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), lineup, NA_character_),
+            fg3m = if_else(eventmsgtype == 1 & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), lineup, NA_character_),
+            fta = if_else(eventmsgtype == 3, lineup, NA_character_),
+            ftm = if_else(eventmsgtype == 3 & (!str_detect(homedescription, "MISS") | !str_detect(visitordescription, "MISS")), lineup, NA_character_),
+            oreb = if_else(eventmsgtype == 4 & player1_team_id == lag(player1_team_id), lineup, NA_character_),
+            dreb = if_else(eventmsgtype == 4 & player1_team_id != lag(player1_team_id), lineup, NA_character_),
+            reb = if_else(eventmsgtype == 4, lineup, NA_character_),
+            ast = if_else(eventmsgtype == 1, lineup, NA_character_),
+            stl = if_else(eventmsgtype == 5 & eventmsgactiontype %in% c(1, 2), lineup, NA_character_),
+            blk = if_else(eventmsgtype == 2, lineup, NA_character_),
+            tov = if_else(eventmsgtype == 5, lineup, NA_character_),
+            foul = if_else(eventmsgtype == 6, lineup, NA_character_),
+            poss = if_else(possession == 1, lineup, NA_character_)
+        ) %>%
+        group_by(period, team_location) %>%
+        mutate(lineup_index = cumsum(lineup != lag(lineup, default = first(lineup)) | row_number() == 1)) %>%
+        ungroup() %>%
+        group_by(
+            game_id,
+            team_location,
+            period,
+            lineup,
+            team_name,
+            lineup_index
+        ) %>%
+        summarize(
+            fgm = sum(!is.na(fgm)),
+            fga = sum(!is.na(fga)),
+            fg3m = sum(!is.na(fg3m)),
+            fg3a = sum(!is.na(fg3a)),
+            ftm = sum(!is.na(ftm)),
+            fta = sum(!is.na(fta)),
+            oreb = sum(!is.na(oreb)),
+            dreb = sum(!is.na(dreb)),
+            reb = sum(!is.na(reb)),
+            ast = sum(!is.na(ast)),
+            stl = sum(!is.na(stl)),
+            blk = sum(!is.na(blk)),
+            tov = sum(!is.na(tov)),
+            foul = sum(!is.na(foul)),
+            poss = sum(!is.na(poss)),
+            .groups = "drop"
+        ) %>%
+        mutate(
+            pts = (fgm - fg3m) * 2 + fg3m * 3 + ftm,
+            fg_pct = fgm / fga,
+            fg3_pct = fg3m / fg3a,
+            ft_pct = ftm / fta
+        ) %>%
+        mutate(
+            across(everything(), ~ ifelse(is.nan(.), 0, .)),
+            across(ends_with("pct"), ~ round(., 3))
+        ) %>%
+        filter(!is.na(team_name)) %>%
+        select(
+            game_id:fga, fg_pct, fg3m:fg3a, fg3_pct, ftm:fta, ft_pct, oreb:foul, pts, poss
+        ) %>%
+        arrange(team_location, period)
+    
+    return(lineup_box_score)
+}
+
+# Function to combine lineup playtime and box score
+process_and_combine_lineup_period <- function(game_df) {
+    # Calculate lineup playtime
+    lineup_playtime <- calculate_playtime_by_lineup_period(game_df)
+    
+    lineup_playtime_test <- calculate_playtime_by_lineup_period_test(game_df)
+    
+    # Calculate lineup box score
+    lineup_box_score <- calculate_box_score_by_lineup_period(game_df)
+    
+    # Combine the two
+    final_lineup_box_score_test <- lineup_playtime_test %>%
+        left_join(
+            lineup_box_score, by = c("game_id", "lineup", "period",
+                                     "lineup_index", "team_name", "team_location")
+        ) %>%
+        filter(total_minutes != 0) %>%
+        group_by(period, team_location) %>%
+        mutate(lineup_index_2 = cumsum(lineup != lag(lineup, default = first(lineup)) | row_number() == 1))
+        
+    
+    # Combine the two
+    final_lineup_box_score <- lineup_playtime %>%
+        left_join(
+            lineup_box_score, by = c("game_id", "lineup", "period",
+                                     "lineup_index", "team_name", "team_location")
+        ) %>%
+        arrange(team_location, period, lineup_index) %>%
+        # mutate(across(fgm:poss, ~ replace_na(.x, 0))) %>%
+        select(
+            game_id, team_location, period, lineup, team_name,
+            fgm:poss, total_minutes, minutes_played, starter, lineup_index
+        )
+    
+    return(final_lineup_box_score)
+}
+
+# Run processing
+final_result <- process_and_combine_lineup_period(test)
+
+return(final_result)
+
+
+
+
+#### Working ---- Needs cleaning
+# summarized lineup stats
+process_stats_lineup <- function(game_df, filter_period = NULL) {
+    
+    if (!is.null(filter_period)) {
+        # Function to calculate playtime by lineup
+        calculate_playtime_by_lineup_period <- function(game_df) {
+            game_df_filtered <- game_df %>%
+                filter(period == filter_period)
+            
+            # Extract starters from the first row
+            home_starters <- game_df_filtered$lineup_home_pt[1]
+            away_starters <- game_df_filtered$lineup_away_pt[1]
+            
+            # Convert numeric time to minutes:seconds format
+            convert_to_minutes_seconds <- function(time_numeric) {
+                minutes <- floor(time_numeric)
+                seconds <- round((time_numeric - minutes) * 60)
+                sprintf("%d:%02d", minutes, seconds)
+            }
+            
+            # Define helper function to calculate events
+            calculate_lineup_events <- function(data, lineup_col, secs_col) {
+                last_secs <- tail(data[[secs_col]], 1)
+                last_lineup <- tail(data[[lineup_col]], 1)
+                
+                data %>%
+                    mutate(
+                        prev_lineup = lag(!!sym(lineup_col), default = ""),
+                        lineup_changed = !!sym(lineup_col) != prev_lineup
+                    ) %>%
+                    filter(lineup_changed) %>%
+                    select(
+                        secs_passed_game = !!sym(secs_col),
+                        lineup = !!sym(lineup_col),
+                        period
+                    ) %>%
+                    bind_rows(
+                        tibble(
+                            secs_passed_game = last_secs,
+                            lineup = last_lineup
+                        )
+                    ) %>%
+                    arrange(secs_passed_game) %>%
+                    mutate(
+                        time_played = lead(secs_passed_game, default = last_secs) - secs_passed_game
+                    )
+            }
+            
+            # Calculate home and away lineup events
+            home_lineups <- calculate_lineup_events(game_df_filtered, "lineup_home_pt", "secs_passed_game") %>%
+                mutate(team_location = "home",
+                       team_name = game_df %>%
+                           filter(eventmsgtype == 10 & eventmsgactiontype == 0 & period == 1) %>%
+                           pull(player1_team_abbreviation))
+            away_lineups <- calculate_lineup_events(game_df_filtered, "lineup_away_pt", "secs_passed_game") %>%
+                mutate(team_location = "away",
+                       team_name = game_df %>%
+                           filter(eventmsgtype == 10 & eventmsgactiontype == 0 & period == 1) %>%
+                           pull(player2_team_abbreviation))
+            
+            # Combine home and away lineups and summarize playtime
+            lineup_playtime <- bind_rows(home_lineups, away_lineups) %>%
+                filter(!is.na(period) & time_played != 0) %>%
+                group_by(team_location, team_name, lineup, period) %>%
+                summarize(
+                    total_seconds = sum(time_played, na.rm = TRUE),
+                    .groups = "drop"
+                ) %>%
+                arrange(team_location) %>%
+                mutate(
+                    starter = ifelse(lineup %in% c(home_starters, away_starters), 1, 0),
+                    total_minutes = total_seconds / 60,
+                    minutes_played = convert_to_minutes_seconds(total_minutes)
+                ) %>%
+                select(lineup, total_minutes, minutes_played, period, starter, team_name, team_location)
+            # # for full game
+            # group_by(lineup, starter) %>%
+            # summarize(
+            #     total_minutes = sum(total_minutes, na.rm = TRUE),
+            #     .groups = "drop"
+            # ) %>%
+            # mutate(minutes_played = convert_to_minutes_seconds(total_minutes)) %>%
+            # select(lineup, total_minutes, minutes_played, starter)
+            
+            return(lineup_playtime)
+        }
+        
+        # Function to calculate box score by lineup
+        calculate_box_score_by_lineup_period <- function(game_df) {
+            lineup_box_score <- game_df %>%
+                filter(period == filter_period) %>%
+                mutate(
+                    lineup = case_when(
+                        team_location == "away" ~ lineup_away,
+                        team_location == "home" ~ lineup_home,
+                        TRUE ~ NA_character_),
+                    fga = if_else(eventmsgtype %in% c(1, 2), lineup, NA_character_),
+                    fgm = if_else(eventmsgtype == 1, lineup, NA_character_),
+                    fg3a = if_else(eventmsgtype %in% c(1, 2) & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), lineup, NA_character_),
+                    fg3m = if_else(eventmsgtype == 1 & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), lineup, NA_character_),
+                    fta = if_else(eventmsgtype == 3, lineup, NA_character_),
+                    ftm = if_else(eventmsgtype == 3 & (!str_detect(homedescription, "MISS") | !str_detect(visitordescription, "MISS")), lineup, NA_character_),
+                    oreb = if_else(eventmsgtype == 4 & player1_team_id == lag(player1_team_id), lineup, NA_character_),
+                    dreb = if_else(eventmsgtype == 4 & player1_team_id != lag(player1_team_id), lineup, NA_character_),
+                    reb = if_else(eventmsgtype == 4, lineup, NA_character_),
+                    ast = if_else(eventmsgtype == 1, lineup, NA_character_),
+                    stl = if_else(eventmsgtype == 5 & eventmsgactiontype %in% c(1, 2), lineup, NA_character_),
+                    blk = if_else(eventmsgtype == 2, lineup, NA_character_),
+                    tov = if_else(eventmsgtype == 5, lineup, NA_character_),
+                    foul = if_else(eventmsgtype == 6, lineup, NA_character_),
+                    poss = if_else(possession == 1, lineup, NA_character_)
+                ) %>%
+                group_by(
+                    game_id,
+                    team_location,
+                    period,
+                    lineup,
+                    team_name = coalesce(player1_team_abbreviation, player2_team_abbreviation, player3_team_abbreviation)
+                ) %>%
+                summarize(
+                    fgm = sum(!is.na(fgm)),
+                    fga = sum(!is.na(fga)),
+                    fg3m = sum(!is.na(fg3m)),
+                    fg3a = sum(!is.na(fg3a)),
+                    ftm = sum(!is.na(ftm)),
+                    fta = sum(!is.na(fta)),
+                    oreb = sum(!is.na(oreb)),
+                    dreb = sum(!is.na(dreb)),
+                    reb = sum(!is.na(reb)),
+                    ast = sum(!is.na(ast)),
+                    stl = sum(!is.na(stl)),
+                    blk = sum(!is.na(blk)),
+                    tov = sum(!is.na(tov)),
+                    foul = sum(!is.na(foul)),
+                    poss = sum(!is.na(poss)),
+                    .groups = "drop"
+                ) %>%
+                mutate(
+                    pts = (fgm - fg3m) * 2 + fg3m * 3 + ftm,
+                    fg_pct = fgm / fga,
+                    fg3_pct = fg3m / fg3a,
+                    ft_pct = ftm / fta
+                ) %>%
+                mutate(
+                    across(everything(), ~ ifelse(is.nan(.), 0, .)),
+                    across(ends_with("pct"), ~ round(., 3))
+                ) %>%
+                filter(!is.na(team_name)) %>%
+                select(
+                    game_id:fga, fg_pct, fg3m:fg3a, fg3_pct, ftm:fta, ft_pct, oreb:foul, pts, poss
+                ) %>%
+                arrange(team_location, period)
+            
+            return(lineup_box_score)
+        }
+        
+        # Function to combine lineup playtime and box score
+        process_and_combine_lineup_period <- function(game_df) {
+            # Calculate lineup playtime
+            lineup_playtime <- calculate_playtime_by_lineup_period(game_df)
+            
+            # Calculate lineup box score
+            lineup_box_score <- calculate_box_score_by_lineup_period(game_df)
+            
+            # Combine the two
+            final_lineup_box_score <- lineup_playtime %>%
+                left_join(
+                    lineup_box_score, by = c("lineup", "period", "team_name", "team_location")
+                ) %>%
+                fill(game_id, .direction = "down") %>%
+                mutate(across(fgm:poss, ~ replace_na(.x, 0))) %>%
+                arrange(team_location, period) %>%
+                select(
+                    game_id, team_location, period, lineup, team_name,
+                    fgm:poss, total_minutes, minutes_played, starter
+                )
+            
+            return(final_lineup_box_score)
+        }
+        
+        # Run processing
+        final_result <- process_and_combine_lineup_period(game_df)
+
+        return(final_result)
+        
+    }
+    
+    # Function to calculate playtime by lineup
+    calculate_playtime_by_lineup_game <- function(game_df) {
+        # Extract starters from the first row
+        home_starters <- game_df$lineup_home_pt[1]
+        away_starters <- game_df$lineup_away_pt[1]
+        
+        # Convert numeric time to minutes:seconds format
+        convert_to_minutes_seconds <- function(time_numeric) {
+            minutes <- floor(time_numeric)
+            seconds <- round((time_numeric - minutes) * 60)
+            sprintf("%d:%02d", minutes, seconds)
+        }
+        
+        # Define helper function to calculate events
+        calculate_lineup_events <- function(data, lineup_col, secs_col) {
+            last_secs <- tail(data[[secs_col]], 1)
+            last_lineup <- tail(data[[lineup_col]], 1)
+            
+            data %>%
+                mutate(
+                    prev_lineup = lag(!!sym(lineup_col), default = ""),
+                    lineup_changed = !!sym(lineup_col) != prev_lineup
+                ) %>%
+                filter(lineup_changed) %>%
+                select(
+                    secs_passed_game = !!sym(secs_col),
+                    lineup = !!sym(lineup_col)
+                ) %>%
+                bind_rows(
+                    tibble(
+                        secs_passed_game = last_secs,
+                        lineup = last_lineup
+                    )
+                ) %>%
+                arrange(secs_passed_game) %>%
+                mutate(
+                    time_played = lead(secs_passed_game, default = last_secs) - secs_passed_game
+                )
+        }
+        
+        # Calculate home and away lineup events
+        home_lineups <- calculate_lineup_events(game_df, "lineup_home_pt", "secs_passed_game") %>%
+            mutate(team = "home")
+        away_lineups <- calculate_lineup_events(game_df, "lineup_away_pt", "secs_passed_game") %>%
+            mutate(team = "away")
+        
+        # Combine home and away lineups and summarize playtime
+        lineup_playtime <- bind_rows(home_lineups, away_lineups) %>%
+            group_by(team, lineup) %>%
+            summarize(
+                total_seconds = sum(time_played, na.rm = TRUE),
+                .groups = "drop"
+            ) %>%
+            mutate(
+                starter = ifelse(lineup %in% c(home_starters, away_starters), 1, 0),
+                total_minutes = total_seconds / 60,
+                minutes_played = convert_to_minutes_seconds(total_minutes)
+            ) %>%
+            select(lineup, total_minutes, minutes_played, starter)
+        
+        return(lineup_playtime)
+    }
+    
+    # Function to calculate box score by lineup
+    calculate_box_score_by_lineup_game <- function(game_df) {
+        lineup_box_score <- game_df %>%
+            mutate(
+                lineup = case_when(
+                    team_location == "away" ~ lineup_away,
+                    team_location == "home" ~ lineup_home,
+                    TRUE ~ NA_character_),
+                fga = if_else(eventmsgtype %in% c(1, 2), lineup, NA_character_),
+                fgm = if_else(eventmsgtype == 1, lineup, NA_character_),
+                fg3a = if_else(eventmsgtype %in% c(1, 2) & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), lineup, NA_character_),
+                fg3m = if_else(eventmsgtype == 1 & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), lineup, NA_character_),
+                fta = if_else(eventmsgtype == 3, lineup, NA_character_),
+                ftm = if_else(eventmsgtype == 3 & (!str_detect(homedescription, "MISS") | !str_detect(visitordescription, "MISS")), lineup, NA_character_),
+                oreb = if_else(eventmsgtype == 4 & player1_team_id == lag(player1_team_id), lineup, NA_character_),
+                dreb = if_else(eventmsgtype == 4 & player1_team_id != lag(player1_team_id), lineup, NA_character_),
+                reb = if_else(eventmsgtype == 4, lineup, NA_character_),
+                ast = if_else(eventmsgtype == 1, lineup, NA_character_),
+                stl = if_else(eventmsgtype == 5 & eventmsgactiontype %in% c(1, 2), lineup, NA_character_),
+                blk = if_else(eventmsgtype == 2, lineup, NA_character_),
+                tov = if_else(eventmsgtype == 5, lineup, NA_character_),
+                foul = if_else(eventmsgtype == 6, lineup, NA_character_)
+            ) %>%
+            group_by(
+                game_id,
+                team_location,
+                lineup,
+                team_name = coalesce(player1_team_abbreviation, player2_team_abbreviation, player3_team_abbreviation)
+            ) %>%
+            summarize(
+                fgm = sum(!is.na(fgm)),
+                fga = sum(!is.na(fga)),
+                fg3m = sum(!is.na(fg3m)),
+                fg3a = sum(!is.na(fg3a)),
+                ftm = sum(!is.na(ftm)),
+                fta = sum(!is.na(fta)),
+                oreb = sum(!is.na(oreb)),
+                dreb = sum(!is.na(dreb)),
+                reb = sum(!is.na(reb)),
+                ast = sum(!is.na(ast)),
+                stl = sum(!is.na(stl)),
+                blk = sum(!is.na(blk)),
+                tov = sum(!is.na(tov)),
+                foul = sum(!is.na(foul)),
+                .groups = "drop"
+            ) %>%
+            mutate(
+                pts = (fgm - fg3m) * 2 + fg3m * 3 + ftm,
+                fg_pct = fgm / fga,
+                fg3_pct = fg3m / fg3a,
+                ft_pct = ftm / fta
+            ) %>%
+            mutate(
+                across(everything(), ~ ifelse(is.nan(.), 0, .)),
+                across(ends_with("pct"), ~ round(., 3))
+            ) %>%
+            filter(!is.na(team_name)) %>%
+            select(
+                game_id:fga, fg_pct, fg3m:fg3a, fg3_pct, ftm:fta, ft_pct, oreb:foul, pts
+            ) %>%
+            arrange(team_location)
+        
+        return(lineup_box_score)
+    }
+    
+    # Function to combine lineup playtime and box score
+    process_and_combine_lineup_game <- function(game_df) {
+        # Calculate lineup playtime
+        lineup_playtime <- calculate_playtime_by_lineup_game(game_df)
+        
+        # Calculate lineup box score
+        lineup_box_score <- calculate_box_score_by_lineup_game(game_df)
+        
+        # Combine the two
+        final_lineup_box_score <- lineup_box_score %>%
+            left_join(
+                lineup_playtime, by = c("lineup")
+            ) %>%
+            arrange(team_location, desc(total_minutes))
+        
+        return(final_lineup_box_score)
+    }
+    
+    # Run processing
+    final_result <- process_and_combine_lineup_game(game_df)
+    
+    return(final_result)
+    
+}
+stats_lineup <- process_stats_lineup(game_df, 4)
+
+# index lineup stats
+process_stats_lineup <- function(game_df, filter_period = NULL) {
+    
+    if (!is.null(filter_period)) {
+        # Function to calculate playtime by lineup
+        calculate_playtime_by_lineup_period <- function(game_df) {
+            # Convert numeric time to minutes:seconds format
+            convert_to_minutes_seconds <- function(time_numeric) {
+                minutes <- floor(time_numeric)
+                seconds <- round((time_numeric - minutes) * 60)
+                sprintf("%d:%02d", minutes, seconds)
+            }
+            
+            # Define helper function to calculate events
+            calculate_lineup_events <- function(data, lineup_col, secs_col) {
+                last_secs <- tail(data[[secs_col]], 1)
+                last_lineup <- tail(data[[lineup_col]], 1)
+                
+                data %>%
+                    mutate(
+                        prev_lineup = lag(!!sym(lineup_col), default = ""),
+                        lineup_changed = !!sym(lineup_col) != prev_lineup
+                    ) %>%
+                    filter(lineup_changed) %>%
+                    select(
+                        secs_passed_game = !!sym(secs_col),
+                        lineup = !!sym(lineup_col),
+                        period
+                    ) %>%
+                    bind_rows(
+                        tibble(
+                            secs_passed_game = last_secs,
+                            lineup = last_lineup
+                        )
+                    ) %>%
+                    arrange(secs_passed_game) %>%
+                    mutate(
+                        time_played = lead(secs_passed_game, default = last_secs) - secs_passed_game
+                    ) %>%
+                    group_by(period) %>%
+                    mutate(lineup_index = row_number()) %>%
+                    ungroup()
+            }
+            
+            # Calculate home and away lineup events
+            home_lineups <- calculate_lineup_events(game_df, "lineup_home_pt", "secs_passed_game") %>%
+                mutate(team_location = "home",
+                       team_name = game_df %>%
+                           filter(eventmsgtype == 10 & eventmsgactiontype == 0 & period == 1) %>%
+                           pull(player1_team_abbreviation))
+            
+            away_lineups <- calculate_lineup_events(game_df, "lineup_away_pt", "secs_passed_game") %>%
+                mutate(team_location = "away",
+                       team_name = game_df %>%
+                           filter(eventmsgtype == 10 & eventmsgactiontype == 0 & period == 1) %>%
+                           pull(player2_team_abbreviation))
+            
+            # Combine home and away lineups and summarize playtime
+            lineup_playtime <- bind_rows(home_lineups, away_lineups) %>%
+                filter(!is.na(period) & time_played != 0) %>%
+                group_by(team_location, team_name, lineup, period, lineup_index) %>%
+                summarize(
+                    total_seconds = sum(time_played, na.rm = TRUE),
+                    .groups = "drop"
+                ) %>%
+                arrange(team_location, lineup_index) %>%
+                mutate(
+                    starter = if_else(lineup_index == 1, 1, 0),
+                    total_minutes = total_seconds / 60,
+                    minutes_played = convert_to_minutes_seconds(total_minutes)
+                ) %>%
+                select(lineup, total_minutes, minutes_played, starter, period, lineup_index,
+                       team_name, team_location)
+            # # for full game
+            # group_by(lineup, starter) %>%
+            # summarize(
+            #     total_minutes = sum(total_minutes, na.rm = TRUE),
+            #     .groups = "drop"
+            # ) %>%
+            # mutate(minutes_played = convert_to_minutes_seconds(total_minutes)) %>%
+            # select(lineup, total_minutes, minutes_played, starter)
+            
+            return(lineup_playtime)
+        }
+        
+        # Function to calculate box score by lineup
+        calculate_box_score_by_lineup_period <- function(game_df) {
+            lineup_box_score <- game_df %>%
+                mutate(
+                    lineup = case_when(
+                        team_location == "away" ~ lineup_away,
+                        team_location == "home" ~ lineup_home,
+                        TRUE ~ NA_character_),
+                    fga = if_else(eventmsgtype %in% c(1, 2), lineup, NA_character_),
+                    fgm = if_else(eventmsgtype == 1, lineup, NA_character_),
+                    fg3a = if_else(eventmsgtype %in% c(1, 2) & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), lineup, NA_character_),
+                    fg3m = if_else(eventmsgtype == 1 & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), lineup, NA_character_),
+                    fta = if_else(eventmsgtype == 3, lineup, NA_character_),
+                    ftm = if_else(eventmsgtype == 3 & (!str_detect(homedescription, "MISS") | !str_detect(visitordescription, "MISS")), lineup, NA_character_),
+                    oreb = if_else(eventmsgtype == 4 & player1_team_id == lag(player1_team_id), lineup, NA_character_),
+                    dreb = if_else(eventmsgtype == 4 & player1_team_id != lag(player1_team_id), lineup, NA_character_),
+                    reb = if_else(eventmsgtype == 4, lineup, NA_character_),
+                    ast = if_else(eventmsgtype == 1, lineup, NA_character_),
+                    stl = if_else(eventmsgtype == 5 & eventmsgactiontype %in% c(1, 2), lineup, NA_character_),
+                    blk = if_else(eventmsgtype == 2, lineup, NA_character_),
+                    tov = if_else(eventmsgtype == 5, lineup, NA_character_),
+                    foul = if_else(eventmsgtype == 6, lineup, NA_character_),
+                    poss = if_else(possession == 1, lineup, NA_character_)
+                ) %>%
+                group_by(period, team_location) %>%
+                mutate(lineup_index = cumsum(lineup != lag(lineup, default = first(lineup)) | row_number() == 1)) %>%
+                ungroup() %>%
+                group_by(
+                    game_id,
+                    team_location,
+                    period,
+                    lineup,
+                    team_name = coalesce(player1_team_abbreviation, player2_team_abbreviation, player3_team_abbreviation),
+                    lineup_index
+                ) %>%
+                summarize(
+                    fgm = sum(!is.na(fgm)),
+                    fga = sum(!is.na(fga)),
+                    fg3m = sum(!is.na(fg3m)),
+                    fg3a = sum(!is.na(fg3a)),
+                    ftm = sum(!is.na(ftm)),
+                    fta = sum(!is.na(fta)),
+                    oreb = sum(!is.na(oreb)),
+                    dreb = sum(!is.na(dreb)),
+                    reb = sum(!is.na(reb)),
+                    ast = sum(!is.na(ast)),
+                    stl = sum(!is.na(stl)),
+                    blk = sum(!is.na(blk)),
+                    tov = sum(!is.na(tov)),
+                    foul = sum(!is.na(foul)),
+                    poss = sum(!is.na(poss)),
+                    .groups = "drop"
+                ) %>%
+                mutate(
+                    pts = (fgm - fg3m) * 2 + fg3m * 3 + ftm,
+                    fg_pct = fgm / fga,
+                    fg3_pct = fg3m / fg3a,
+                    ft_pct = ftm / fta
+                ) %>%
+                mutate(
+                    across(everything(), ~ ifelse(is.nan(.), 0, .)),
+                    across(ends_with("pct"), ~ round(., 3))
+                ) %>%
+                filter(!is.na(team_name)) %>%
+                select(
+                    game_id:fga, fg_pct, fg3m:fg3a, fg3_pct, ftm:fta, ft_pct, oreb:foul, pts, poss
+                ) %>%
+                arrange(team_location, period)
+            
+            return(lineup_box_score)
+        }
+        
+        # Function to combine lineup playtime and box score
+        process_and_combine_lineup_period <- function(game_df) {
+            # Calculate lineup playtime
+            lineup_playtime <- calculate_playtime_by_lineup_period(game_df)
+            
+            # Calculate lineup box score
+            lineup_box_score <- calculate_box_score_by_lineup_period(game_df)
+            
+            # Combine the two
+            final_lineup_box_score <- lineup_playtime %>%
+                left_join(
+                    lineup_box_score, by = c("lineup", "period", "lineup_index", "team_name", "team_location")
+                ) %>%
+                arrange(team_location, period, lineup_index) %>%
+                fill(game_id, .direction = "down") %>%
+                mutate(across(fgm:poss, ~ replace_na(.x, 0))) %>%
+                filter(period == filter_period) %>%
+                select(
+                    game_id, team_location, period, lineup, team_name,
+                    fgm:poss, total_minutes, minutes_played, starter, lineup_index
+                )
+            
+            return(final_lineup_box_score)
+        }
+        
+        # Run processing
+        final_result <- process_and_combine_lineup_period(game_df)
+        
+        return(final_result)
+        
+    }
+    
+    # Function to calculate playtime by lineup
+    calculate_playtime_by_lineup_game <- function(game_df) {
+        # Extract starters from the first row
+        home_starters <- game_df$lineup_home_pt[1]
+        away_starters <- game_df$lineup_away_pt[1]
+        
+        # Convert numeric time to minutes:seconds format
+        convert_to_minutes_seconds <- function(time_numeric) {
+            minutes <- floor(time_numeric)
+            seconds <- round((time_numeric - minutes) * 60)
+            sprintf("%d:%02d", minutes, seconds)
+        }
+        
+        # Define helper function to calculate events
+        calculate_lineup_events <- function(data, lineup_col, secs_col) {
+            last_secs <- tail(data[[secs_col]], 1)
+            last_lineup <- tail(data[[lineup_col]], 1)
+            
+            data %>%
+                mutate(
+                    prev_lineup = lag(!!sym(lineup_col), default = ""),
+                    lineup_changed = !!sym(lineup_col) != prev_lineup
+                ) %>%
+                filter(lineup_changed) %>%
+                select(
+                    secs_passed_game = !!sym(secs_col),
+                    lineup = !!sym(lineup_col)
+                ) %>%
+                bind_rows(
+                    tibble(
+                        secs_passed_game = last_secs,
+                        lineup = last_lineup
+                    )
+                ) %>%
+                arrange(secs_passed_game) %>%
+                mutate(
+                    time_played = lead(secs_passed_game, default = last_secs) - secs_passed_game
+                )
+        }
+        
+        # Calculate home and away lineup events
+        home_lineups <- calculate_lineup_events(game_df, "lineup_home_pt", "secs_passed_game") %>%
+            mutate(team = "home")
+        away_lineups <- calculate_lineup_events(game_df, "lineup_away_pt", "secs_passed_game") %>%
+            mutate(team = "away")
+        
+        # Combine home and away lineups and summarize playtime
+        lineup_playtime <- bind_rows(home_lineups, away_lineups) %>%
+            group_by(team, lineup) %>%
+            summarize(
+                total_seconds = sum(time_played, na.rm = TRUE),
+                .groups = "drop"
+            ) %>%
+            mutate(
+                starter = ifelse(lineup %in% c(home_starters, away_starters), 1, 0),
+                total_minutes = total_seconds / 60,
+                minutes_played = convert_to_minutes_seconds(total_minutes)
+            ) %>%
+            select(lineup, total_minutes, minutes_played, starter)
+        
+        return(lineup_playtime)
+    }
+    
+    # Function to calculate box score by lineup
+    calculate_box_score_by_lineup_game <- function(game_df) {
+        lineup_box_score <- game_df %>%
+            mutate(
+                lineup = case_when(
+                    team_location == "away" ~ lineup_away,
+                    team_location == "home" ~ lineup_home,
+                    TRUE ~ NA_character_),
+                fga = if_else(eventmsgtype %in% c(1, 2), lineup, NA_character_),
+                fgm = if_else(eventmsgtype == 1, lineup, NA_character_),
+                fg3a = if_else(eventmsgtype %in% c(1, 2) & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), lineup, NA_character_),
+                fg3m = if_else(eventmsgtype == 1 & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), lineup, NA_character_),
+                fta = if_else(eventmsgtype == 3, lineup, NA_character_),
+                ftm = if_else(eventmsgtype == 3 & (!str_detect(homedescription, "MISS") | !str_detect(visitordescription, "MISS")), lineup, NA_character_),
+                oreb = if_else(eventmsgtype == 4 & player1_team_id == lag(player1_team_id), lineup, NA_character_),
+                dreb = if_else(eventmsgtype == 4 & player1_team_id != lag(player1_team_id), lineup, NA_character_),
+                reb = if_else(eventmsgtype == 4, lineup, NA_character_),
+                ast = if_else(eventmsgtype == 1, lineup, NA_character_),
+                stl = if_else(eventmsgtype == 5 & eventmsgactiontype %in% c(1, 2), lineup, NA_character_),
+                blk = if_else(eventmsgtype == 2, lineup, NA_character_),
+                tov = if_else(eventmsgtype == 5, lineup, NA_character_),
+                foul = if_else(eventmsgtype == 6, lineup, NA_character_)
+            ) %>%
+            group_by(
+                game_id,
+                team_location,
+                lineup,
+                team_name = coalesce(player1_team_abbreviation, player2_team_abbreviation, player3_team_abbreviation)
+            ) %>%
+            summarize(
+                fgm = sum(!is.na(fgm)),
+                fga = sum(!is.na(fga)),
+                fg3m = sum(!is.na(fg3m)),
+                fg3a = sum(!is.na(fg3a)),
+                ftm = sum(!is.na(ftm)),
+                fta = sum(!is.na(fta)),
+                oreb = sum(!is.na(oreb)),
+                dreb = sum(!is.na(dreb)),
+                reb = sum(!is.na(reb)),
+                ast = sum(!is.na(ast)),
+                stl = sum(!is.na(stl)),
+                blk = sum(!is.na(blk)),
+                tov = sum(!is.na(tov)),
+                foul = sum(!is.na(foul)),
+                .groups = "drop"
+            ) %>%
+            mutate(
+                pts = (fgm - fg3m) * 2 + fg3m * 3 + ftm,
+                fg_pct = fgm / fga,
+                fg3_pct = fg3m / fg3a,
+                ft_pct = ftm / fta
+            ) %>%
+            mutate(
+                across(everything(), ~ ifelse(is.nan(.), 0, .)),
+                across(ends_with("pct"), ~ round(., 3))
+            ) %>%
+            filter(!is.na(team_name)) %>%
+            select(
+                game_id:fga, fg_pct, fg3m:fg3a, fg3_pct, ftm:fta, ft_pct, oreb:foul, pts
+            ) %>%
+            arrange(team_location)
+        
+        return(lineup_box_score)
+    }
+    
+    # Function to combine lineup playtime and box score
+    process_and_combine_lineup_game <- function(game_df) {
+        # Calculate lineup playtime
+        lineup_playtime <- calculate_playtime_by_lineup_game(game_df)
+        
+        # Calculate lineup box score
+        lineup_box_score <- calculate_box_score_by_lineup_game(game_df)
+        
+        # Combine the two
+        final_lineup_box_score <- lineup_box_score %>%
+            left_join(
+                lineup_playtime, by = c("lineup")
+            ) %>%
+            arrange(team_location, desc(total_minutes))
+        
+        return(final_lineup_box_score)
+    }
+    
+    # Run processing
+    final_result <- process_and_combine_lineup_game(game_df)
+    
+    return(final_result)
+    
+}
+stats_lineup <- process_stats_lineup(game_df, 4)
+
+# summarized player stats
+process_stats_player <- function(game_df, filter_period = NULL) {
+  
+    if (!is.null(filter_period)) {
+        # Function to process a single game's playtime
+        calculate_playtime_by_player_period <- function(game_df) {
+            # Convert numeric time to minutes:seconds format
+            convert_to_minutes_seconds <- function(time_numeric) {
+                minutes <- floor(time_numeric)
+                seconds <- round((time_numeric - minutes) * 60)
+                sprintf("%d:%02d", minutes, seconds)
+            }
+            
+            # Calculate playtime events by period
+            calculate_playtime <- function(data, lineup_col, secs_col) {
+                data %>%
+                    group_by(period) %>%
+                    mutate(
+                        prev_lineup = lag(!!sym(lineup_col), default = ""),
+                        entered = map2(!!sym(lineup_col), prev_lineup, ~ setdiff(str_split(.x, ", ")[[1]], str_split(.y, ", ")[[1]])),
+                        exited = map2(prev_lineup, !!sym(lineup_col), ~ setdiff(str_split(.x, ", ")[[1]], str_split(.y, ", ")[[1]]))
+                    ) %>%
+                    group_split() %>%
+                    map_dfr(~ {
+                        period_data <- .x
+                        last_secs <- tail(period_data[[secs_col]], 1)
+                        last_lineup <- tail(period_data[[lineup_col]], 1)
+                        
+                        period_data %>%
+                            select(
+                                secs_passed_game = !!sym(secs_col),
+                                entered,
+                                exited,
+                                period
+                            ) %>%
+                            bind_rows(
+                                tibble(
+                                    secs_passed_game = last_secs,
+                                    entered = list(character()), 
+                                    exited = list(str_split(last_lineup, ", ")[[1]]),
+                                    period = unique(period_data$period)
+                                )
+                            )
+                    })
+            }
+            
+            home_events <- calculate_playtime(game_df, "lineup_home_pt", "secs_passed_game")
+            away_events <- calculate_playtime(game_df, "lineup_away_pt", "secs_passed_game")
+            
+            all_events <- bind_rows(
+                home_events %>% mutate(team = "home"),
+                away_events %>% mutate(team = "away")
+            ) %>%
+                pivot_longer(cols = c(entered, exited), names_to = "event_type", values_to = "player_name") %>%
+                unnest(player_name) %>%
+                arrange(period, secs_passed_game)
+            
+            # Mark starters
+            starters <- all_events %>%
+                filter(event_type == "entered") %>%
+                group_by(period, team) %>%
+                mutate(starter = ifelse(row_number() <= 5, 1, 0)) %>%
+                ungroup() %>%
+                filter(starter == 1) %>%
+                select(period, player_name, starter)
+            
+            # Calculate cumulative playtime
+            player_playtime <- all_events %>%
+                group_by(player_name, period) %>%
+                mutate(
+                    time_on_court = ifelse(event_type == "exited",
+                                           secs_passed_game - lag(secs_passed_game, default = 0), 0)
+                ) %>%
+                ungroup() %>%
+                filter(event_type == "exited") %>%
+                group_by(player_name, period) %>%
+                summarize(
+                    total_seconds = sum(time_on_court, na.rm = TRUE),
+                    .groups = "drop"
+                ) %>%
+                mutate(
+                    total_minutes = total_seconds / 60,
+                    minutes_played = convert_to_minutes_seconds(total_minutes)
+                ) %>%
+                filter(total_seconds != 0 & !is.na(player_name)) %>%
+                left_join(starters, by = c("period", "player_name")) %>%
+                mutate(starter = ifelse(is.na(starter), 0, starter)) %>%
+                select(player_name, total_minutes, minutes_played, starter, period)
+            
+            return(player_playtime)
+        }
+        
+        # Function to process a single game's box score
+        calculate_box_score_by_player_period <- function(game_df) {
+            game_df %>%
+                mutate(
+                    fga = if_else(eventmsgtype %in% c(1, 2), player1_name, NA_character_),
+                    fgm = if_else(eventmsgtype == 1, player1_name, NA_character_),
+                    fg3a = if_else(eventmsgtype %in% c(1, 2) & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), player1_name, NA_character_),
+                    fg3m = if_else(eventmsgtype == 1 & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), player1_name, NA_character_),
+                    fta = if_else(eventmsgtype == 3, player1_name, NA_character_),
+                    ftm = if_else(eventmsgtype == 3 & (!str_detect(homedescription, "MISS") | !str_detect(visitordescription, "MISS")), player1_name, NA_character_),
+                    oreb = if_else(eventmsgtype == 4 & player1_team_id == lag(player1_team_id), player1_name, NA_character_),
+                    dreb = if_else(eventmsgtype == 4 & player1_team_id != lag(player1_team_id), player1_name, NA_character_),
+                    reb = if_else(eventmsgtype == 4, player1_name, NA_character_),
+                    ast = if_else(eventmsgtype == 1, player2_name, NA_character_),
+                    stl = if_else(eventmsgtype == 5 & eventmsgactiontype %in% c(1, 2), player1_name, NA_character_),
+                    blk = if_else(eventmsgtype == 2, player3_name, NA_character_),
+                    tov = if_else(eventmsgtype == 5, player1_name, NA_character_),
+                    foul = if_else(eventmsgtype == 6, player1_name, NA_character_)
+                ) %>%
+                group_by(
+                    game_id,
+                    team_location,
+                    period,
+                    player_name = coalesce(player1_name, player2_name, player3_name),
+                    team_name = coalesce(player1_team_abbreviation, player2_team_abbreviation, player3_team_abbreviation)
+                ) %>%
+                summarize(
+                    fgm = sum(!is.na(fgm)),
+                    fga = sum(!is.na(fga)),
+                    fg3m = sum(!is.na(fg3m)),
+                    fg3a = sum(!is.na(fg3a)),
+                    ftm = sum(!is.na(ftm)),
+                    fta = sum(!is.na(fta)),
+                    oreb = sum(!is.na(oreb)),
+                    dreb = sum(!is.na(dreb)),
+                    reb = sum(!is.na(reb)),
+                    ast = sum(!is.na(ast)),
+                    stl = sum(!is.na(stl)),
+                    blk = sum(!is.na(blk)),
+                    tov = sum(!is.na(tov)),
+                    foul = sum(!is.na(foul)),
+                    .groups = "drop"
+                ) %>%
+                mutate(
+                    pts = (fgm - fg3m) * 2 + fg3m * 3 + ftm,
+                    fg_pct = fgm / fga,
+                    fg3_pct = fg3m / fg3a,
+                    ft_pct = ftm / fta
+                ) %>%
+                mutate(
+                    across(everything(), ~ ifelse(is.nan(.), 0, .)),
+                    across(ends_with("pct"), ~ round(., 3))
+                ) %>%
+                filter(!is.na(player_name)) %>%
+                select(
+                    game_id:fga, fg_pct, fg3m:fg3a, fg3_pct, ftm:fta, ft_pct, oreb:foul, pts
+                ) %>%
+                arrange(team_location, period)
+        }
+        
+        # Function to combine a single game's box score and playtime
+        process_and_combine_player_period <- function(game_df) {
+            # Calculate play times
+            player_playtime <- calculate_playtime_by_player_period(game_df)
+            
+            # Calculate box score
+            player_box_score <- calculate_box_score_by_player_period(game_df)
+            
+            # Combine both
+            final_player_box_score <- player_box_score %>%
+                left_join(player_playtime, by = c("player_name", "period")) %>%
+                arrange(team_location, period, desc(starter))
+            
+            return(final_player_box_score)
+        }
+        
+        # Run processing
+        final_result <- process_and_combine_player_period(game_df)
+        
+        return(final_result)
+    }
+    
+    # Function to process a single game's playtime
+    calculate_playtime_by_player_game <- function(game_df) {
+        # Extract starters from the first row
+        home_starters <- str_split(game_df$lineup_home[1], ", ")[[1]]
+        away_starters <- str_split(game_df$lineup_away[1], ", ")[[1]]
+        
+        # Convert numeric time to minutes:seconds format
+        convert_to_minutes_seconds <- function(time_numeric) {
+            minutes <- floor(time_numeric)
+            seconds <- round((time_numeric - minutes) * 60)
+            sprintf("%d:%02d", minutes, seconds)
+        }
+        
+        # Calculate playtime events
+        calculate_playtime <- function(data, lineup_col, secs_col) {
+            last_secs <- tail(data[[secs_col]], 1)
+            last_lineup <- tail(data[[lineup_col]], 1)
+            
+            data %>%
+                mutate(
+                    prev_lineup = lag(!!sym(lineup_col), default = ""),
+                    entered = map2(!!sym(lineup_col), prev_lineup, ~ setdiff(str_split(.x, ", ")[[1]], str_split(.y, ", ")[[1]])),
+                    exited = map2(prev_lineup, !!sym(lineup_col), ~ setdiff(str_split(.x, ", ")[[1]], str_split(.y, ", ")[[1]]))
+                ) %>%
+                select(secs_passed_game = !!sym(secs_col), entered, exited) %>%
+                bind_rows(
+                    tibble(
+                        secs_passed_game = last_secs,
+                        entered = list(character()), 
+                        exited = list(str_split(last_lineup, ", ")[[1]])
+                    )
+                )
+        }
+        
+        home_events <- calculate_playtime(game_df, "lineup_home_pt", "secs_passed_game")
+        away_events <- calculate_playtime(game_df, "lineup_away_pt", "secs_passed_game")
+        
+        all_events <- bind_rows(
+            home_events %>% mutate(team = "home"),
+            away_events %>% mutate(team = "away")
+        ) %>%
+            pivot_longer(cols = c(entered, exited), names_to = "event_type", values_to = "player_name") %>%
+            unnest(player_name) %>%
+            arrange(secs_passed_game)
+        
+        # Mark starters
+        all_events <- all_events %>%
+            mutate(starter = ifelse(player_name %in% c(home_starters, away_starters), 1, 0))
+        
+        # Calculate cumulative playtime
+        player_playtime <- all_events %>%
+            group_by(player_name) %>%
+            mutate(
+                time_on_court = ifelse(event_type == "exited",
+                                       secs_passed_game - lag(secs_passed_game, default = 0), 0)
+            ) %>%
+            filter(event_type == "exited") %>%
+            summarize(total_seconds = sum(time_on_court, na.rm = TRUE),
+                      starter = first(starter)) %>%
+            mutate(
+                total_minutes = total_seconds / 60,
+                minutes_played = convert_to_minutes_seconds(total_minutes)
+            ) %>%
+            filter(total_seconds != 0) %>%
+            select(player_name, total_minutes, minutes_played, starter)
+        
+        return(player_playtime)
+    }
+    
+    # Function to process a single game's box score
+    calculate_box_score_by_player_game <- function(game_df) {
+        game_df %>%
+            mutate(
+                fga = if_else(eventmsgtype %in% c(1, 2), player1_name, NA_character_),
+                fgm = if_else(eventmsgtype == 1, player1_name, NA_character_),
+                fg3a = if_else(eventmsgtype %in% c(1, 2) & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), player1_name, NA_character_),
+                fg3m = if_else(eventmsgtype == 1 & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), player1_name, NA_character_),
+                fta = if_else(eventmsgtype == 3, player1_name, NA_character_),
+                ftm = if_else(eventmsgtype == 3 & (!str_detect(homedescription, "MISS") | !str_detect(visitordescription, "MISS")), player1_name, NA_character_),
+                oreb = if_else(eventmsgtype == 4 & player1_team_id == lag(player1_team_id), player1_name, NA_character_),
+                dreb = if_else(eventmsgtype == 4 & player1_team_id != lag(player1_team_id), player1_name, NA_character_),
+                reb = if_else(eventmsgtype == 4, player1_name, NA_character_),
+                ast = if_else(eventmsgtype == 1, player2_name, NA_character_),
+                stl = if_else(eventmsgtype == 5 & eventmsgactiontype %in% c(1, 2), player1_name, NA_character_),
+                blk = if_else(eventmsgtype == 2, player3_name, NA_character_),
+                tov = if_else(eventmsgtype == 5, player1_name, NA_character_),
+                foul = if_else(eventmsgtype == 6, player1_name, NA_character_)
+            ) %>%
+            group_by(
+                game_id,
+                team_location,
+                player_name = coalesce(player1_name, player2_name, player3_name),
+                team_name = coalesce(player1_team_abbreviation, player2_team_abbreviation, player3_team_abbreviation)
+            ) %>%
+            summarize(
+                fgm = sum(!is.na(fgm)),
+                fga = sum(!is.na(fga)),
+                fg3m = sum(!is.na(fg3m)),
+                fg3a = sum(!is.na(fg3a)),
+                ftm = sum(!is.na(ftm)),
+                fta = sum(!is.na(fta)),
+                oreb = sum(!is.na(oreb)),
+                dreb = sum(!is.na(dreb)),
+                reb = sum(!is.na(reb)),
+                ast = sum(!is.na(ast)),
+                stl = sum(!is.na(stl)),
+                blk = sum(!is.na(blk)),
+                tov = sum(!is.na(tov)),
+                foul = sum(!is.na(foul)),
+                .groups = "drop"
+            ) %>%
+            mutate(
+                pts = (fgm - fg3m) * 2 + fg3m * 3 + ftm,
+                fg_pct = fgm / fga,
+                fg3_pct = fg3m / fg3a,
+                ft_pct = ftm / fta
+            ) %>%
+            mutate(
+                across(everything(), ~ ifelse(is.nan(.), 0, .)),
+                across(ends_with("pct"), ~ round(., 3))
+            ) %>%
+            filter(!is.na(player_name)) %>%
+            select(
+                game_id:fga, fg_pct, fg3m:fg3a, fg3_pct, ftm:fta, ft_pct, oreb:foul, pts
+            ) %>%
+            arrange(team_location)
+    }
+    
+    # Function to combine a single game's box score and playtime
+    process_and_combine_player_game <- function(game_df) {
+        # Calculate play times
+        player_playtime <- calculate_playtime_by_player_game(game_df)
+        
+        # Calculate box score
+        player_box_score <- calculate_box_score_by_player_game(game_df)
+        
+        # Combine both
+        final_player_box_score <- player_box_score %>%
+            left_join(player_playtime, by = c("player_name")) %>%
+            arrange(team_location, desc(starter))
+        
+        return(final_player_box_score)
+    }
+    
+    # Run processing
+    final_result <- process_and_combine_player_game(game_df)
+    
+    return(final_result)
+      
+}
+stats_player <- process_stats_player(game_df, 4)
+
+
+
+#### Lineup Stats Full Game ----
+# Function to calculate playtime by lineup
+calculate_playtime_by_lineup_game <- function(game_df) {
+    # Extract starters from the first row
+    home_starters <- game_df$lineup_home_pt[1]
+    away_starters <- game_df$lineup_away_pt[1]
     
     # Convert numeric time to minutes:seconds format
     convert_to_minutes_seconds <- function(time_numeric) {
@@ -1686,16 +2985,17 @@ calculate_playtime_by_lineup <- function(game_df) {
             .groups = "drop"
         ) %>%
         mutate(
+            starter = ifelse(lineup %in% c(home_starters, away_starters), 1, 0),
             total_minutes = total_seconds / 60,
             minutes_played = convert_to_minutes_seconds(total_minutes)
         ) %>%
-        arrange(team, desc(total_minutes))
+        select(lineup, total_minutes, minutes_played, starter)
     
     return(lineup_playtime)
 }
 
 # Function to calculate box score by lineup
-calculate_box_score_by_lineup <- function(game_df) {
+calculate_box_score_by_lineup_game <- function(game_df) {
     lineup_box_score <- game_df %>%
         mutate(
             lineup = case_when(
@@ -1720,7 +3020,8 @@ calculate_box_score_by_lineup <- function(game_df) {
         group_by(
             game_id,
             team_location,
-            lineup
+            lineup,
+            team_name = coalesce(player1_team_abbreviation, player2_team_abbreviation, player3_team_abbreviation)
         ) %>%
         summarize(
             fgm = sum(!is.na(fgm)),
@@ -1749,7 +3050,7 @@ calculate_box_score_by_lineup <- function(game_df) {
             across(everything(), ~ ifelse(is.nan(.), 0, .)),
             across(ends_with("pct"), ~ round(., 3))
         ) %>%
-        filter(!is.na(team_location)) %>%
+        filter(!is.na(team_name)) %>%
         select(
             game_id:fga, fg_pct, fg3m:fg3a, fg3_pct, ftm:fta, ft_pct, oreb:foul, pts
         ) %>%
@@ -1759,35 +3060,193 @@ calculate_box_score_by_lineup <- function(game_df) {
 }
 
 # Function to combine lineup playtime and box score
-process_and_combine_lineup <- function(game_df) {
+process_and_combine_lineup_game <- function(game_df) {
     # Calculate lineup playtime
-    lineup_playtime <- calculate_playtime_by_lineup(game_df)
+    lineup_playtime <- calculate_playtime_by_lineup_game(game_df)
     
     # Calculate lineup box score
-    lineup_box_score <- calculate_box_score_by_lineup(game_df)
+    lineup_box_score <- calculate_box_score_by_lineup_game(game_df)
     
     # Combine the two
     final_lineup_box_score <- lineup_box_score %>%
         left_join(
-            lineup_playtime %>%
-                select(team, lineup, minutes_played),
-            by = c("lineup")
+            lineup_playtime, by = c("lineup")
         ) %>%
-        arrange(team_location)
+        arrange(team_location, desc(total_minutes))
     
     return(final_lineup_box_score)
 }
 
 # Apply the function to a list of game data
-lineup_box_score <- map(pbp_list, process_and_combine_lineup)
+lineup_box_score <- map(pbp_list, process_and_combine_lineup_game)
+
+# Combine results for all games
+final_lineup_box_score <- bind_rows(final_results, .id = "game_id")
+
+#### Lineup Stats by Periods ----
+# Function to calculate playtime by lineup
+calculate_playtime_by_lineup_period <- function(game_df) {
+    # Convert numeric time to minutes:seconds format
+    convert_to_minutes_seconds <- function(time_numeric) {
+        minutes <- floor(time_numeric)
+        seconds <- round((time_numeric - minutes) * 60)
+        sprintf("%d:%02d", minutes, seconds)
+    }
+    
+    # Define helper function to calculate events
+    calculate_lineup_events <- function(data, lineup_col, secs_col) {
+        last_secs <- tail(data[[secs_col]], 1)
+        last_lineup <- tail(data[[lineup_col]], 1)
+        
+        data %>%
+            mutate(
+                prev_lineup = lag(!!sym(lineup_col), default = ""),
+                lineup_changed = !!sym(lineup_col) != prev_lineup
+            ) %>%
+            filter(lineup_changed) %>%
+            select(
+                secs_passed_game = !!sym(secs_col),
+                lineup = !!sym(lineup_col),
+                period
+            ) %>%
+            bind_rows(
+                tibble(
+                    secs_passed_game = last_secs,
+                    lineup = last_lineup
+                )
+            ) %>%
+            arrange(secs_passed_game) %>%
+            mutate(
+                time_played = lead(secs_passed_game, default = last_secs) - secs_passed_game
+            )
+    }
+    
+    # Calculate home and away lineup events
+    home_lineups <- calculate_lineup_events(game_df, "lineup_home_pt", "secs_passed_game") %>%
+        mutate(team_location = "home")
+    away_lineups <- calculate_lineup_events(game_df, "lineup_away_pt", "secs_passed_game") %>%
+        mutate(team_location = "away")
+    
+    # Combine home and away lineups and summarize playtime
+    lineup_playtime <- bind_rows(home_lineups, away_lineups) %>%
+        filter(!is.na(period)) %>%
+        group_by(team_location, lineup, period) %>%
+        summarize(
+            total_seconds = sum(time_played, na.rm = TRUE),
+            .groups = "drop"
+        ) %>%
+        arrange(team_location) %>%
+        mutate(
+            total_minutes = total_seconds / 60,
+            minutes_played = convert_to_minutes_seconds(total_minutes)
+        ) %>%
+        select(lineup, total_minutes, minutes_played, period)
+    # # for full game
+    # group_by(lineup, starter) %>%
+    # summarize(
+    #     total_minutes = sum(total_minutes, na.rm = TRUE),
+    #     .groups = "drop"
+    # ) %>%
+    # mutate(minutes_played = convert_to_minutes_seconds(total_minutes)) %>%
+    # select(lineup, total_minutes, minutes_played, starter)
+    
+    return(lineup_playtime)
+}
+
+# Function to calculate box score by lineup
+calculate_box_score_by_lineup_period <- function(game_df) {
+    lineup_box_score <- game_df %>%
+        mutate(
+            lineup = case_when(
+                team_location == "away" ~ lineup_away,
+                team_location == "home" ~ lineup_home,
+                TRUE ~ NA_character_),
+            fga = if_else(eventmsgtype %in% c(1, 2), lineup, NA_character_),
+            fgm = if_else(eventmsgtype == 1, lineup, NA_character_),
+            fg3a = if_else(eventmsgtype %in% c(1, 2) & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), lineup, NA_character_),
+            fg3m = if_else(eventmsgtype == 1 & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), lineup, NA_character_),
+            fta = if_else(eventmsgtype == 3, lineup, NA_character_),
+            ftm = if_else(eventmsgtype == 3 & (!str_detect(homedescription, "MISS") | !str_detect(visitordescription, "MISS")), lineup, NA_character_),
+            oreb = if_else(eventmsgtype == 4 & player1_team_id == lag(player1_team_id), lineup, NA_character_),
+            dreb = if_else(eventmsgtype == 4 & player1_team_id != lag(player1_team_id), lineup, NA_character_),
+            reb = if_else(eventmsgtype == 4, lineup, NA_character_),
+            ast = if_else(eventmsgtype == 1, lineup, NA_character_),
+            stl = if_else(eventmsgtype == 5 & eventmsgactiontype %in% c(1, 2), lineup, NA_character_),
+            blk = if_else(eventmsgtype == 2, lineup, NA_character_),
+            tov = if_else(eventmsgtype == 5, lineup, NA_character_),
+            foul = if_else(eventmsgtype == 6, lineup, NA_character_)
+        ) %>%
+        group_by(
+            game_id,
+            team_location,
+            period,
+            lineup,
+            team_name = coalesce(player1_team_abbreviation, player2_team_abbreviation, player3_team_abbreviation)
+        ) %>%
+        summarize(
+            fgm = sum(!is.na(fgm)),
+            fga = sum(!is.na(fga)),
+            fg3m = sum(!is.na(fg3m)),
+            fg3a = sum(!is.na(fg3a)),
+            ftm = sum(!is.na(ftm)),
+            fta = sum(!is.na(fta)),
+            oreb = sum(!is.na(oreb)),
+            dreb = sum(!is.na(dreb)),
+            reb = sum(!is.na(reb)),
+            ast = sum(!is.na(ast)),
+            stl = sum(!is.na(stl)),
+            blk = sum(!is.na(blk)),
+            tov = sum(!is.na(tov)),
+            foul = sum(!is.na(foul)),
+            .groups = "drop"
+        ) %>%
+        mutate(
+            pts = (fgm - fg3m) * 2 + fg3m * 3 + ftm,
+            fg_pct = fgm / fga,
+            fg3_pct = fg3m / fg3a,
+            ft_pct = ftm / fta
+        ) %>%
+        mutate(
+            across(everything(), ~ ifelse(is.nan(.), 0, .)),
+            across(ends_with("pct"), ~ round(., 3))
+        ) %>%
+        filter(!is.na(team_name)) %>%
+        select(
+            game_id:fga, fg_pct, fg3m:fg3a, fg3_pct, ftm:fta, ft_pct, oreb:foul, pts
+        ) %>%
+        arrange(team_location, period)
+    
+    return(lineup_box_score)
+}
+
+# Function to combine lineup playtime and box score
+process_and_combine_lineup_period <- function(game_df) {
+    # Calculate lineup playtime
+    lineup_playtime <- calculate_playtime_by_lineup_period(game_df)
+    
+    # Calculate lineup box score
+    lineup_box_score <- calculate_box_score_by_lineup_period(game_df)
+    
+    # Combine the two
+    final_lineup_box_score <- lineup_box_score %>%
+        left_join(
+            lineup_playtime, by = c("lineup", "period")
+        ) %>%
+        arrange(team_location, period)
+    
+    return(final_lineup_box_score)
+}
+
+# Apply the function to a list of game data
+lineup_box_score <- map(pbp_list, process_and_combine_lineup_period)
 
 # Combine results for all games
 final_lineup_box_score <- bind_rows(final_results, .id = "game_id")
 
 
-
+#### Player Stats Full Game ----
 # Function to process a single game's playtime
-calculate_playtime_by_player <- function(game_df) {
+calculate_playtime_by_player_game <- function(game_df) {
     # Extract starters from the first row
     home_starters <- str_split(game_df$lineup_home[1], ", ")[[1]]
     away_starters <- str_split(game_df$lineup_away[1], ", ")[[1]]
@@ -1827,17 +3286,17 @@ calculate_playtime_by_player <- function(game_df) {
         home_events %>% mutate(team = "home"),
         away_events %>% mutate(team = "away")
     ) %>%
-        pivot_longer(cols = c(entered, exited), names_to = "event_type", values_to = "player") %>%
-        unnest(player) %>%
+        pivot_longer(cols = c(entered, exited), names_to = "event_type", values_to = "player_name") %>%
+        unnest(player_name) %>%
         arrange(secs_passed_game)
     
     # Mark starters
     all_events <- all_events %>%
-        mutate(starter = ifelse(player %in% c(home_starters, away_starters), 1, 0))
-    
-    # Calculate cumulative playtime
+        mutate(starter = ifelse(player_name %in% c(home_starters, away_starters), 1, 0))
+
+        # Calculate cumulative playtime
     player_playtime <- all_events %>%
-        group_by(player) %>%
+        group_by(player_name) %>%
         mutate(
             time_on_court = ifelse(event_type == "exited",
                                    secs_passed_game - lag(secs_passed_game, default = 0), 0)
@@ -1849,14 +3308,14 @@ calculate_playtime_by_player <- function(game_df) {
             total_minutes = total_seconds / 60,
             minutes_played = convert_to_minutes_seconds(total_minutes)
         ) %>%
-        arrange(desc(total_minutes)) %>%
-        filter(total_seconds != 0)
+        filter(total_seconds != 0) %>%
+        select(player_name, total_minutes, minutes_played, starter)
     
     return(player_playtime)
 }
 
 # Function to process a single game's box score
-calculate_box_score_by_player <- function(game_df) {
+calculate_box_score_by_player_game <- function(game_df) {
     game_df %>%
         mutate(
             fga = if_else(eventmsgtype %in% c(1, 2), player1_name, NA_character_),
@@ -1914,28 +3373,203 @@ calculate_box_score_by_player <- function(game_df) {
         arrange(team_location)
 }
 
-# Function to cobine a single game's box score and playtime
-process_and_combine_player <- function(game_df) {
+# Function to combine a single game's box score and playtime
+process_and_combine_player_game  <- function(game_df) {
     # Calculate play times
-    player_playtime <- calculate_playtime_by_player(game_df)
+    player_playtime <- calculate_playtime_by_player_game(game_df)
     
     # Calculate box score
-    box_score <- calculate_box_score_by_player(game_df)
+    player_box_score <- calculate_box_score_by_player_game(game_df)
     
     # Combine both
-    final_box_score <- box_score %>%
-        left_join(player_playtime %>% select(player, minutes_played, starter),
-                  by = c("player_name" = "player")) %>%
+    final_player_box_score <- player_box_score %>%
+        left_join(player_playtime, by = c("player_name")) %>%
         arrange(team_location, desc(starter))
     
-    return(final_box_score)
+    return(final_player_box_score)
 }
 
 # Apply the function to a list of game data
-player_box_score <- map(pbp_list, process_and_combine_player)
+player_box_score <- map(pbp_list, process_and_combine_player_game)
 
 # Combine results for all games
 final_player_box_score <- bind_rows(final_results, .id = "game_id")
+
+#### Player Stats by Periods ----
+# Function to process a single game's playtime
+calculate_playtime_by_player_period <- function(game_df) {
+    # Convert numeric time to minutes:seconds format
+    convert_to_minutes_seconds <- function(time_numeric) {
+        minutes <- floor(time_numeric)
+        seconds <- round((time_numeric - minutes) * 60)
+        sprintf("%d:%02d", minutes, seconds)
+    }
+    
+    # Calculate playtime events by period
+    calculate_playtime <- function(data, lineup_col, secs_col) {
+        data %>%
+            group_by(period) %>%
+            mutate(
+                prev_lineup = lag(!!sym(lineup_col), default = ""),
+                entered = map2(!!sym(lineup_col), prev_lineup, ~ setdiff(str_split(.x, ", ")[[1]], str_split(.y, ", ")[[1]])),
+                exited = map2(prev_lineup, !!sym(lineup_col), ~ setdiff(str_split(.x, ", ")[[1]], str_split(.y, ", ")[[1]]))
+            ) %>%
+            group_split() %>%
+            map_dfr(~ {
+                period_data <- .x
+                last_secs <- tail(period_data[[secs_col]], 1)
+                last_lineup <- tail(period_data[[lineup_col]], 1)
+                
+                period_data %>%
+                    select(
+                        secs_passed_game = !!sym(secs_col),
+                        entered,
+                        exited,
+                        period
+                    ) %>%
+                    bind_rows(
+                        tibble(
+                            secs_passed_game = last_secs,
+                            entered = list(character()), 
+                            exited = list(str_split(last_lineup, ", ")[[1]]),
+                            period = unique(period_data$period)
+                        )
+                    )
+            })
+    }
+    
+    home_events <- calculate_playtime(game_df, "lineup_home_pt", "secs_passed_game")
+    away_events <- calculate_playtime(game_df, "lineup_away_pt", "secs_passed_game")
+    
+    all_events <- bind_rows(
+        home_events %>% mutate(team = "home"),
+        away_events %>% mutate(team = "away")
+    ) %>%
+        pivot_longer(cols = c(entered, exited), names_to = "event_type", values_to = "player_name") %>%
+        unnest(player_name) %>%
+        arrange(period, secs_passed_game)
+    
+    # Mark starters
+    starters <- all_events %>%
+        filter(event_type == "entered") %>%
+        group_by(period, team) %>%
+        mutate(starter = ifelse(row_number() <= 5, 1, 0)) %>%
+        ungroup() %>%
+        filter(starter == 1) %>%
+        select(period, player_name, starter)
+    
+    # Calculate cumulative playtime
+    player_playtime <- all_events %>%
+        group_by(player_name, period) %>%
+        mutate(
+            time_on_court = ifelse(event_type == "exited",
+                                   secs_passed_game - lag(secs_passed_game, default = 0), 0)
+        ) %>%
+        ungroup() %>%
+        filter(event_type == "exited") %>%
+        group_by(player_name, period) %>%
+        summarize(
+            total_seconds = sum(time_on_court, na.rm = TRUE),
+            .groups = "drop"
+        ) %>%
+        mutate(
+            total_minutes = total_seconds / 60,
+            minutes_played = convert_to_minutes_seconds(total_minutes)
+        ) %>%
+        filter(total_seconds != 0 & !is.na(player_name)) %>%
+        left_join(starters, by = c("period", "player_name")) %>%
+        mutate(starter = ifelse(is.na(starter), 0, starter)) %>%
+        select(player_name, total_minutes, minutes_played, starter, period)
+    
+    return(player_playtime)
+}
+
+# Function to process a single game's box score
+calculate_box_score_by_player_period <- function(game_df) {
+    game_df %>%
+        mutate(
+            fga = if_else(eventmsgtype %in% c(1, 2), player1_name, NA_character_),
+            fgm = if_else(eventmsgtype == 1, player1_name, NA_character_),
+            fg3a = if_else(eventmsgtype %in% c(1, 2) & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), player1_name, NA_character_),
+            fg3m = if_else(eventmsgtype == 1 & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), player1_name, NA_character_),
+            fta = if_else(eventmsgtype == 3, player1_name, NA_character_),
+            ftm = if_else(eventmsgtype == 3 & (!str_detect(homedescription, "MISS") | !str_detect(visitordescription, "MISS")), player1_name, NA_character_),
+            oreb = if_else(eventmsgtype == 4 & player1_team_id == lag(player1_team_id), player1_name, NA_character_),
+            dreb = if_else(eventmsgtype == 4 & player1_team_id != lag(player1_team_id), player1_name, NA_character_),
+            reb = if_else(eventmsgtype == 4, player1_name, NA_character_),
+            ast = if_else(eventmsgtype == 1, player2_name, NA_character_),
+            stl = if_else(eventmsgtype == 5 & eventmsgactiontype %in% c(1, 2), player1_name, NA_character_),
+            blk = if_else(eventmsgtype == 2, player3_name, NA_character_),
+            tov = if_else(eventmsgtype == 5, player1_name, NA_character_),
+            foul = if_else(eventmsgtype == 6, player1_name, NA_character_)
+        ) %>%
+        group_by(
+            game_id,
+            team_location,
+            period,
+            player_name = coalesce(player1_name, player2_name, player3_name),
+            team_name = coalesce(player1_team_abbreviation, player2_team_abbreviation, player3_team_abbreviation)
+        ) %>%
+        summarize(
+            fgm = sum(!is.na(fgm)),
+            fga = sum(!is.na(fga)),
+            fg3m = sum(!is.na(fg3m)),
+            fg3a = sum(!is.na(fg3a)),
+            ftm = sum(!is.na(ftm)),
+            fta = sum(!is.na(fta)),
+            oreb = sum(!is.na(oreb)),
+            dreb = sum(!is.na(dreb)),
+            reb = sum(!is.na(reb)),
+            ast = sum(!is.na(ast)),
+            stl = sum(!is.na(stl)),
+            blk = sum(!is.na(blk)),
+            tov = sum(!is.na(tov)),
+            foul = sum(!is.na(foul)),
+            .groups = "drop"
+        ) %>%
+        mutate(
+            pts = (fgm - fg3m) * 2 + fg3m * 3 + ftm,
+            fg_pct = fgm / fga,
+            fg3_pct = fg3m / fg3a,
+            ft_pct = ftm / fta
+        ) %>%
+        mutate(
+            across(everything(), ~ ifelse(is.nan(.), 0, .)),
+            across(ends_with("pct"), ~ round(., 3))
+        ) %>%
+        filter(!is.na(player_name)) %>%
+        select(
+            game_id:fga, fg_pct, fg3m:fg3a, fg3_pct, ftm:fta, ft_pct, oreb:foul, pts
+        ) %>%
+        arrange(team_location, period)
+}
+
+# Function to combine a single game's box score and playtime
+process_and_combine_player_period <- function(game_df) {
+    # Calculate play times
+    player_playtime <- calculate_playtime_by_player_period(game_df)
+    
+    # Calculate box score
+    player_box_score <- calculate_box_score_by_player_period(game_df)
+    
+    # Combine both
+    final_player_box_score <- player_box_score %>%
+        left_join(player_playtime, by = c("player_name", "period")) %>%
+        arrange(team_location, period, desc(starter))
+    
+    return(final_player_box_score)
+}
+
+# Apply the function to a list of game data
+player_box_score <- map(pbp_list, process_and_combine_player_period)
+
+# Combine results for all games
+final_player_box_score <- bind_rows(final_results, .id = "game_id")
+
+
+
+
+
 
 
 
