@@ -1655,6 +1655,125 @@ game_df <- game_df %>%
 
 
 
+lineup_box_score <- game_df %>%
+    mutate(
+        lineup = case_when(
+            team_location == "away" ~ lineup_away,
+            team_location == "home" ~ lineup_home,
+            TRUE ~ NA_character_),
+        opp_lineup = case_when(
+            team_location == "away" ~ lineup_home,
+            team_location == "home" ~ lineup_away,
+            TRUE ~ NA_character_),
+        lineup_pts = case_when(
+            team_location == "away" ~ shot_pts_away,
+            team_location == "home" ~ shot_pts_home,
+            TRUE ~ NA_integer_),
+        team_name = case_when(
+            team_location == "away" ~ away_team_name,
+            team_location == "home" ~ home_team_name,
+            TRUE ~ NA_character_),
+        fga = if_else(eventmsgtype %in% c(1, 2), 1, NA_integer_),
+        fgm = if_else(eventmsgtype == 1, 1, NA_integer_),
+        fg3a = if_else(eventmsgtype %in% c(1, 2) & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), 1, NA_integer_),
+        fg3m = if_else(eventmsgtype == 1 & (str_detect(homedescription, "3PT") | str_detect(visitordescription, "3PT")), 1, NA_integer_),
+        fta = if_else(eventmsgtype == 3, 1, NA_integer_),
+        ftm = if_else(eventmsgtype == 3 & (!str_detect(homedescription, "MISS") | !str_detect(visitordescription, "MISS")), 1, NA_integer_),
+        oreb = if_else(eventmsgtype == 4 & player1_team_id == lag(player1_team_id), 1, NA_integer_),
+        dreb = if_else(eventmsgtype == 4 & player1_team_id != lag(player1_team_id), 1, NA_integer_),
+        reb = if_else(eventmsgtype == 4, 1, NA_integer_),
+        ast = if_else(eventmsgtype == 1 & person2type != 0, 1, NA_integer_),
+        stl = if_else(eventmsgtype == 5 & eventmsgactiontype %in% c(1, 2), 1, NA_integer_),
+        blk = if_else(eventmsgtype == 2, 1, NA_integer_),
+        tov = if_else(eventmsgtype == 5, 1, NA_integer_),
+        foul = if_else(eventmsgtype == 6, 1, NA_integer_),
+        poss = if_else(possession == 1, 1, NA_integer_)
+    ) %>%
+    # filter(lineup %in% lineup_playtime$lineup & period %in% lineup_playtime$period) %>%
+    group_by(
+        game_id,
+        team_location,
+        period,
+        lineup,
+        opp_lineup,
+        team_name
+    ) %>%
+    summarize(
+        fgm = sum(fgm, na.rm = T),
+        fga = sum(fga, na.rm = T),
+        fg3m = sum(fg3m, na.rm = T),
+        fg3a = sum(fg3a, na.rm = T),
+        ftm = sum(ftm, na.rm = T),
+        fta = sum(fta, na.rm = T),
+        oreb = sum(oreb, na.rm = T),
+        dreb = sum(dreb, na.rm = T),
+        reb = sum(reb, na.rm = T),
+        ast = sum(ast, na.rm = T),
+        stl = sum(stl, na.rm = T),
+        blk = sum(blk, na.rm = T),
+        tov = sum(tov, na.rm = T),
+        foul = sum(foul, na.rm = T),
+        poss = sum(poss, na.rm = T),
+        pts = sum(lineup_pts, na.rm = T),
+        .groups = "drop"
+    )
+
+lineup_box_score_2 <- lineup_box_score %>%
+    filter(!is.na(lineup)) %>%
+    group_by(game_id, team_location, team_name, period, lineup) %>%
+    summarize(across(fgm:pts, sum), .groups = "drop") %>%
+    left_join(
+        lineup_box_score %>%
+            filter(!is.na(lineup)) %>%
+            group_by(opp_lineup) %>%
+            summarize(across(fgm:pts, sum), .groups = "drop"),
+        by = c("lineup" = "opp_lineup"), suffix = c("", "_opp")
+    ) %>%
+    mutate(
+        plus_minus = pts-pts_opp,
+        fg_pct = fgm/fga,
+        fg3_pct = fg3m/fg3a,
+        ft_pct = ftm/fta,
+        ortg = pts/poss,
+        drtg = pts_opp/poss_opp,
+        nrtg = ortg-drtg,
+        ast_pct = ast/fgm,
+        ast_tov = ast/tov,
+        ast_ratio = ast/poss,
+        oreb_pct = oreb/(oreb+dreb_opp),
+        dreb_pct = dreb/(dreb+oreb_opp),
+        tov_pct = tov/poss,
+        efg_pct = (fgm+0.5*fg3m)/fga,
+        ts_pct = pts/(2*(fga+0.44*fta)),
+        usage_pct = poss/(sum(poss+poss_opp, na.rm = T))
+    )
+
+
+# mutate(
+#     across(everything(), ~ ifelse(is.nan(.), 0, .)),
+#     across(ends_with("pct"), ~ round(., 3))
+# ) %>%
+#     filter(!is.na(team_name)) %>%
+#     select(
+#         game_id:fga, fg_pct, fg3m:fg3a, fg3_pct, ftm:fta, ft_pct, oreb:foul, pts, poss,
+#         ortg:usage_pct
+#     ) %>%
+#     arrange(team_location, period)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 server <- function(input, output) {
     output$lineup_stats <- renderTable({
         # Filter the dataset based on the period
